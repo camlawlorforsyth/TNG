@@ -127,3 +127,13 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# catalogue and miscellaneous files from the TNG site
+*.h5
+*.hdf5
+
+# generated files
+*.fits
+
+# additional information
+*boneyard*
