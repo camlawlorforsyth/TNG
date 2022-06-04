@@ -1,166 +1,82 @@
 
-import os
 import numpy as np
 
-from astropy.cosmology import Planck15 as cosmo
-import h5py
-import pandas as pd
-# import warnings
-# warnings.filterwarnings('ignore')
+from astropy.table import Table
 
-# scale_factor = 1.0 / (1+redshift)
+from core import gcPath
 
-hh, solar_Z = cosmo.h, 0.0142 # MIST
+solar_Z = 0.0127 # Wiersma+ 2009, MNRAS, 399, 574; used by TNG documentation
 
-def select(basePath, groupName, simName, snapshot) :
+def select(simName, snapNum) :
     
-    # read catalogues
-    outfile_halos = (basePath + groupName +
-                     'properties_halos_{}_{}.h5'.format(simName, snapshot))
-    outfile_subhalos = (basePath + groupName +
-                        'properties_subhalos_{}_{}.h5'.format(simName, snapshot))
+    groupsDir = gcPath(simName, snapNum)
     
-    with h5py.File(outfile_subhalos, 'r') as hf:
-    #     print(hf.keys())
-        data_subhalos = {}
-        for k, v in hf.items():
-            try :
-                data_subhalos[k] = v[:]
-            except :
-                data_subhalos[k] = v
-        data_subhalos['count'] = len(data_subhalos['subID'])
+    # read catalogs
+    halos_infile = groupsDir + 'halos_catalog_{}_{}.fits'.format(
+        simName, snapNum)
+    halos = Table.read(halos_infile)
     
-    with h5py.File(outfile_halos, 'r') as hf:
-    #     print(hf.keys())
-        data_halos = {}
-        for k, v in hf.items():
-            try :
-                data_halos[k] = v[:]
-            except :
-                data_halos[k] = np.copy(v)
-                pass
+    subhalos_infile = groupsDir + 'subhalos_catalog_{}_{}.fits'.format(
+        simName, snapNum)
+    subhalos = Table.read(subhalos_infile)
     
-    # make dataframes
-    # easier to query than dictionaries
-    dict_subhalos = {}
-    for k, v in data_subhalos.items():
-        if type(v) == int: continue
-        if v.ndim < 2:
-            dict_subhalos[k] = v
-    table_subhalos = pd.DataFrame(dict_subhalos )
+    # create a mask for the galaxies that we want to compute their SFHs for
+    in_sel = ((subhalos['SubhaloFlag'] == 1) &
+              (subhalos['SubhaloMassStars'] >= 8))
+    subhalos['in_selection'] = in_sel
     
-    dict_halos = {}
-    for k, v in data_halos.items():
-        if type(v) == int: continue
-        if v.ndim < 2:
-            dict_halos[k] = v
-    table_halos = pd.DataFrame(dict_halos )
+    # create a mask for the central galaxies, based on unique indices from the
+    # halo table and it's 'GroupFirstSub' column
+    subhalos['is_central'] = np.zeros(len(subhalos), dtype=bool)
+    central_indices = np.unique(
+        halos['GroupFirstSub'][halos['GroupFirstSub'] >= 0])
+    subhalos['is_central'][central_indices] = True
     
-    table_subhalos['logzsol'] = np.log10(
-        table_subhalos['SubhaloStarMetallicity']/solar_Z)
-    table_subhalos['log_SubhaloSFR'] = np.log10(table_subhalos['SubhaloSFR'])
-    table_subhalos['log_SubhaloSFRinRad'] = np.log10(
-        table_subhalos['SubhaloSFRinRad'])
-    table_subhalos['log_sSubhaloSFRinRad'] = (np.log10(
-        table_subhalos['SubhaloSFRinRad']) - table_subhalos['logmass_stars'])
+    # create a mask for massive halos with M200 >= 13.8
+    halos['is_cluster'] = np.zeros(len(halos), dtype=bool)
+    cluster_indices = halos['GroupID'][halos['Group_M_Crit200'] >= 13.8]
+    halos['is_cluster'][cluster_indices] = True
     
-    # select galaxies for which we want SFHs
+    # label subhalos in clusters
+    subhalos['in_cluster'] = np.zeros(len(subhalos), dtype=bool)
+    for cluster_index in cluster_indices :
+        subhalo_index = halos['GroupFirstSub'][cluster_index]
+        Nsubs = halos['GroupNsubs'][cluster_index]
+        subhalos['in_cluster'][subhalo_index:subhalo_index+Nsubs] = True
     
-    flag_ok = 1
-    logmass_cut = (10.0, 11.8)
+    # create masks for different populations
+    base = (subhalos['in_selection'] == True) # 8261 in selection
+    BCG = (base & (subhalos['in_cluster'] == True) &
+           (subhalos['is_central'] == True)) # 3 bCGs
+    satellites = (base & (subhalos['in_cluster'] == True) &
+                  (subhalos['is_central'] == False)) # 648 satellites
+    field = (base & (subhalos['in_cluster'] == False) &
+             (subhalos['is_central'] == True)) # 4689 field primaries
     
-    # SFR based on star forming main sequence, fit to the data
-    # quiescent is n_std*std less than main sequence
-    coeffs = [0.94039153, 0.50658046]
-    mx = 10.0
-    std = 0.3
-    n_std = 3
-    sfr_cut = np.poly1d(
-        coeffs)(table_subhalos['logmass_stars'] - mx) - n_std*std
-    sfr_cut = np.power(10, sfr_cut)
+    # make columns based on those masks
+    subhalos['BCG'] = BCG
+    subhalos['satellites'] = satellites
+    subhalos['field'] = field
     
-    sel_q = ( logmass_cut[0] <= table_subhalos['logmass_stars'] ) &\
-            ( logmass_cut[1] >= table_subhalos['logmass_stars'] ) &\
-            ( table_subhalos['SubhaloSFRinRad'] <= sfr_cut ) &\
-            ( table_subhalos['SubhaloFlag'] == flag_ok )
+    # write the good subhalo IDs to file, for downloading SFHs
+    subhaloIDs = np.concatenate((subhalos['SubhaloID'][BCG].value,
+                                 subhalos['SubhaloID'][satellites].value,
+                                 subhalos['SubhaloID'][field].value))
+    # np.savetxt(groupsDir + 'subhaloIDs_in_selection.txt', subhaloIDs, fmt='%d')
     
-    table_subhalos['in_selection'] = np.zeros( len(table_subhalos) )
-    table_subhalos.loc[ np.where(sel_q)[0], 'in_selection' ] = 1
+    # save the subhalos table to file, masked based on populations we care about
+    subhalos = subhalos[BCG | satellites | field]
+    subhalos.write(groupsDir + 'subhalos_catalog_{}_{}_sample.fits'.format(
+        simName, snapNum))
     
-    # select cluster vs satellite
-    table_subhalos['is_central'] = np.zeros( len(table_subhalos) )
+    return
+
+def transformations() :
     
-    # query Halo table for 'First Sub' which lists the SubHaloID of the group central
-    # non-centrals have value -1, so skip the first unique entry
-    idns_central = np.unique(
-        table_halos.query('GroupFirstSub >= 0')['GroupFirstSub'].values)
-    table_subhalos.loc[ idns_central, 'is_central'] = 1
+    # from astropy.cosmology import Planck15 as cosmo
+    # import h5py
     
-    # select groups based on halo mass
-    print('Number of halos:', len(table_halos))
-    print()
-    table_halos['is_cluster'] = np.zeros(len(table_halos))
-    
-    # select groups with M_Crit200_Msun > threshold
-    M_Crit200_Msun_thresh = 10**(14.2)
-    idns_cluster = table_halos.query(
-        'Group_M_Crit200_Msun > {}'.format(M_Crit200_Msun_thresh)).index.values
-    table_halos.loc[ idns_cluster, 'is_cluster'] = 1
-    
-    # label subhaloes in clusters
-    table_subhalos['in_cluster'] = np.zeros(len(table_subhalos))
-    for idn_cluster in idns_cluster:
-        idn_subhalo = table_halos.loc[idn_cluster, 'GroupFirstSub']
-        Nsubs = table_halos.loc[idn_cluster, 'GroupNsubs']
-        table_subhalos.loc[idn_subhalo : idn_subhalo+Nsubs, 'in_cluster'] = 1
-        print('Cluster {:4}, with log Group_M_Crit200_Msun = {:.3f}, has {:4} subhalos'.format(
-            idn_cluster, table_halos.loc[idn_cluster, 'logMcrit'], Nsubs))
-    
-    print()
-    print('Number of halos that are clusters: {}'.format(len(idns_cluster)))
-    
-    print('Number of subhalos: {}'.format(len(table_subhalos)))
-    query = '(SubhaloFlag>0)'
-    print('Number of subhalos, with good flag: {}'.format(
-        len(table_subhalos.query(query))))
-    query += ' & (is_central==1)'
-    print('Number of subhalos, with good flag, is a central: {}'.format(
-        len(table_subhalos.query(query))))
-    query += ' & (in_selection==1)'
-    print('Number of subhalos, with good flag, is a central, and in selection: {}'.format(
-        len(table_subhalos.query(query))))
-    
-    query = '(SubhaloFlag>0)  & (is_central==0)'
-    print('Number of subhalos, with good flag, that are satellites: {}'.format(
-        len(table_subhalos.query(query))))
-    query += ' & (in_cluster==1)'
-    print('Number of subhalos, with good flag, that are satellites of a cluster: {}'.format(
-        len(table_subhalos.query(query))))
-    query += ' & (in_selection==1)'
-    print('Number of subhalos, with good flag, that are satellites of a cluster, in selection: {}'.format(
-        len(table_subhalos.query(query))))
-    print()
-    
-    sel_base = '(in_selection==1)'
-    sel_sat_in_cluster = sel_base +' & ' + '(is_central==0) & (in_cluster==1)'
-    sel_field = sel_base + ' & ' + '(is_central==1)'
-    
-    label_sat_in_cluster = 'Quiescent satellite in a cluster'
-    label_field = 'Quiescent field galaxy'
-    
-    # SFHs
-    sfh_data_file = basePath + groupName + 'sfhs_{}_selected.hdf5'.format(simName)
-    if not os.path.exists(sfh_data_file) :
-        subID_selection_file = basePath + groupName + 'subIDs_in_selection.txt'
-        
-        print('Need to get sfhs for selected subIDs, writing list to {}:'.format(
-            subID_selection_file))
-        subIDs = table_subhalos.query(sel_sat_in_cluster)['subID'].values
-        subIDs = np.append(subIDs, table_subhalos.query(sel_field)['subID'].values)
-        np.savetxt(subID_selection_file, subIDs)
-        print('python get_sfhs.py')
-        print('Exiting...')
-    
+    # sfh_data_file = groupsDir + 'sfhs_{}_selected.hdf5'.format(simName)
     # with h5py.File( sfh_data_file, 'r' ) as hf:
     #
     #     subID_insel = hf['subID_in_selection'][:]
@@ -183,6 +99,7 @@ def select(basePath, groupName, simName, snapshot) :
     # if root_path not in sys.path: sys.path.append( root_path ) # hacky
     # way to do this, but haven't sorted out a better way yet
     #
+    # hierarchical bayesian modeling == hbm?
     # from hbm_utils.transforms import sfr_to_mwa, zfrac_to_sfr, cumulate_masses
     #
     # lbtimes_edge_logyr = np.log10( lbtimes_edge )+9
@@ -198,42 +115,42 @@ def select(basePath, groupName, simName, snapshot) :
     # # ====================
     #
     #
-    # table_subhalos['has_sfh'] = np.zeros( len(table_subhalos) )
-    # table_subhalos.loc[ subID_insel, 'has_sfh'] = 1
+    # subhalos['has_sfh'] = np.zeros( len(subhalos) )
+    # subhalos.loc[ subID_insel, 'has_sfh'] = 1
     #
-    # table_subhalos['age'] = np.full( len(table_subhalos), np.nan )
-    # table_subhalos.loc[ subID_insel, 'age'] = ages
+    # subhalos['age'] = np.full( len(subhalos), np.nan )
+    # subhalos.loc[ subID_insel, 'age'] = ages
     #
     # for tt in [0.50,0.70,0.90,0.95]:
     #     str_tt = 't{:.0f}'.format( tt*100 )
-    #     table_subhalos[ str_tt ] = np.full( len(table_subhalos), np.nan )
+    #     subhalos[ str_tt ] = np.full( len(subhalos), np.nan )
     #     t_tts = lbtimes[ np.argmin(np.abs( x_csfr-tt ), axis=1) ]
-    #     table_subhalos.loc[ subID_insel, str_tt ] = t_tts
+    #     subhalos.loc[ subID_insel, str_tt ] = t_tts
     #
     # tuniv = cosmo.age(redshift).value
-    # table_subhalos['tform'] = tuniv - table_subhalos['age'].values
+    # subhalos['tform'] = tuniv - subhalos['age'].values
     #
-    # table_subhalos['cum_logsfh'] = np.full( len(table_subhalos), np.nan )
-    # table_subhalos.loc[ subID_insel, 'cum_logsfh'] = cum_logsfh
+    # subhalos['cum_logsfh'] = np.full( len(subhalos), np.nan )
+    # subhalos.loc[ subID_insel, 'cum_logsfh'] = cum_logsfh
     #
-    # table_subhalos['sfh_index'] = np.full( len(table_subhalos), -1 )
-    # table_subhalos.loc[ subID_insel, 'sfh_index'] = np.arange( len(subID_insel) ).astype(int)
+    # subhalos['sfh_index'] = np.full( len(subhalos), -1 )
+    # subhalos.loc[ subID_insel, 'sfh_index'] = np.arange( len(subID_insel) ).astype(int)
     #
-    # table_subhalos['primary_flag'] = np.full( len(table_subhalos), np.nan )
-    # table_subhalos.loc[ subID_insel, 'primary_flag'] = primary_flag
+    # subhalos['primary_flag'] = np.full( len(subhalos), np.nan )
+    # subhalos.loc[ subID_insel, 'primary_flag'] = primary_flag
     #
     #
     # print()
-    # sel = table_subhalos.query('(has_sfh>0)').index.values
+    # sel = subhalos.query('(has_sfh>0)').index.values
     # print('Number of subhalos with sfh: ', len(sel))
     #
     # sel_sat_in_cluster += ' & (has_sfh>0)'
     # sel_field          += ' & (has_sfh>0)'
     #
-    # sel = table_subhalos.query( sel_sat_in_cluster ).index.values
+    # sel = subhalos.query( sel_sat_in_cluster ).index.values
     # print('  Number of subhalos with sfh in selection, satellites of clusters: ', len(sel))
     #
-    # sel = table_subhalos.query( sel_field ).index.values
+    # sel = subhalos.query( sel_field ).index.values
     # print('  Number of subhalos with sfh in selection, in the field: ', len(sel))
     
     return

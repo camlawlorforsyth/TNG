@@ -1,8 +1,6 @@
 
 import numpy as np
 
-from astropy.cosmology import Planck15 as cosmo
-import illustris_python as il
 import requests
 
 def add_dataset(h5file, data, label, dtype=None) :
@@ -11,20 +9,16 @@ def add_dataset(h5file, data, label, dtype=None) :
     if dtype is None :
         dtype = data.dtype
     
-    # try to add the dataset using h5py's method
-    try :
+   # add the new dataset to the file
+    try : # try to add the dataset using h5py's method
         h5file.create_dataset(label, data=data, shape=np.shape(data), dtype=dtype)
-        # hx[:] = data
-    except : # but add it as a dictionary (essentially) if that doesn't work
+    except : # but add it as a dictionary entry (essentially) if that doesn't work
         h5file[label] = data
     
-    return # h5file
+    return
 
 def bsPath(simName) :
     return '{}/output'.format(simName)
-
-def convert_mass_units(masses) :
-    return masses*1e10/cosmo.h
 
 def cutoutPath(simName, snapNum) :
     return bsPath(simName) + '/cutouts_{:3.0f}/'.format(snapNum).replace(' ', '0')
@@ -32,7 +26,7 @@ def cutoutPath(simName, snapNum) :
 def gcPath(simName, snapNum) :
     return bsPath(simName) + '/groups_{:3.0f}/'.format(snapNum).replace(' ', '0')
 
-def get(path, params=None) :
+def get(path, directory=None, params=None) :
     # https://www.tng-project.org/data/docs/api/
     
     # make HTTP GET request to path
@@ -47,25 +41,17 @@ def get(path, params=None) :
     
     if 'content-disposition' in rr.headers :
         filename = rr.headers['content-disposition'].split('filename=')[1]
-        with open(filename, 'wb') as ff :
+        with open(directory + filename, 'wb') as ff :
             ff.write(rr.content)
         return filename # return the filename string
     
     return rr
 
-def get_stars(xx) :
-    itype_stars = il.snapshot.partTypeNum('stars') # 4
-    x_stars = np.array(xx)[:, itype_stars]
-    return x_stars
+def mpbPath(simName, snapNum) :
+    return bsPath(simName) + '/mpbs_{:3.0f}/'.format(snapNum).replace(' ', '0')
 
 def offsetPath(simName) :
     return '{}/postprocessing/offsets'.format(simName)
 
 def snapPath(simName, snapNum) :
     return bsPath(simName) + '/snapdir_{:3.0f}/'.format(snapNum).replace(' ', '0')
-
-
-
-
-
-
