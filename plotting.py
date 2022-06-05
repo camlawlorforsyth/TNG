@@ -52,7 +52,7 @@ def histogram(data, label, title=None, bins=None, log=False, histtype='bar',
 def plot_simple_dumb(xs, ys, label='',
                      xlabel=None, ylabel=None, title=None,
                      xmin=None, xmax=None, ymin=None, ymax=None,
-                     figsizewidth=9, figsizeheight=6) :
+                     figsizewidth=9.5, figsizeheight=7) :
     
     global currentFig
     fig = plt.figure(currentFig, figsize=(figsizewidth, figsizeheight))
@@ -75,5 +75,42 @@ def plot_simple_dumb(xs, ys, label='',
     
     plt.tight_layout()
     plt.show()
+    
+    return
+
+def plot_simple_multi(xs, ys, labels, colors, markers, styles, alphas=None,
+                      xlabel=None, ylabel=None, title=None,
+                      xmin=None, xmax=None, ymin=None, ymax=None,
+                      figsizewidth=9.5, figsizeheight=7, scale='log', loc=0,
+                      outfile=None, save=False) :
+    
+    global currentFig
+    fig = plt.figure(currentFig, figsize=(figsizewidth, figsizeheight))
+    currentFig += 1
+    plt.clf()
+    ax = fig.add_subplot(111)
+    
+    for i in range(len(xs)) :
+        ax.plot(xs[i], ys[i], marker=markers[i], linestyle=styles[i],
+                color=colors[i], label=labels[i], alpha=alphas[i])
+    
+    ax.set_yscale(scale)
+    ax.set_xscale(scale)
+    
+    ax.set_xlabel(xlabel, fontsize=15)
+    ax.set_ylabel(ylabel, fontsize=15)
+    
+    ax.set_xlim(xmin, xmax)
+    ax.set_ylim(ymin, ymax)
+    # if labels[0] != '' :
+    ax.legend(facecolor='whitesmoke', framealpha=1, fontsize=15, loc=loc)
+    
+    plt.tight_layout()
+    
+    if save :
+        plt.savefig(outfile, bbox_inches='tight')
+        plt.close()
+    else :
+        plt.show()
     
     return

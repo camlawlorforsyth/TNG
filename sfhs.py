@@ -1,212 +1,301 @@
 
-import os
+from os.path import exists
 import numpy as np
 
 from astropy.cosmology import Planck15 as cosmo
+from astropy.table import Table
 import h5py
-import illustris_python as api
-# import requests
 
-from core import add_dataset, convert_mass_units, gcPath, get, get_stars
+from catalogs import convert_mass_units
+from core import add_dataset, cutoutPath, gcPath, get, mpbPath
+import plotting as plt
 
-baseURL = 'http://www.tng-project.org/api/'
-
-def get_cutout(cutoutsPath, groupName, sub, idn, overwrite=False) :
+def download_all_cutouts(simName='TNG50-1', snapNum=99, redshift=0.0) :
     
-    # change this to check if cutout is already downloaded
-    # parameters requested for each particle in the cutout
-    pp = {'stars':
-          'Coordinates,GFM_InitialMass,GFM_Metallicity,GFM_StellarFormationTime'}
+    cutoutDir = cutoutPath(simName, snapNum)
+    groupsDir = gcPath(simName, snapNum)
     
-    filename = cutoutsPath + groupName + 'cutout_{}.hdf5'.format(idn)
+    # define the parameters that are requested for each particle in the cutout
+    params = {'stars':
+              'Coordinates,GFM_InitialMass,GFM_Metallicity,GFM_StellarFormationTime'}
     
-    if (not os.path.isfile(filename)) | (overwrite) :
-        print(' getting {}'.format(filename) )
-        # get and save HDF5 cutout file
-        saved_filename = get(sub['meta']['url'] +'/'+ 'cutout.hdf5', pp)
-        print('{} saved'.format(saved_filename))
-    else :
-        print('{} reading'.format(filename))
-        saved_filename = filename
-        if idn % 100 == 0 :
-            print('Restoring previously saved file: {}'.format(saved_filename))
+    # open the table of subhalos in the sample that we want SFHs for
+    subhalos = Table.read(
+        groupsDir + 'subhalos_catalog_{}_{}_sample.fits'.format(simName, snapNum))
     
-    return saved_filename
-
-def get_history(sub, idn, lbtimes_edge, Nt, radius=None, overwrite=False, 
-                redshift=0) :
-    
-    cutout_filename = get_cutout(sub, idn, overwrite)
-    with h5py.File(cutout_filename, 'r') as hf:
-        a_form = hf['PartType4']['GFM_StellarFormationTime'][:]
+    for subID, R_e in zip(subhalos['SubhaloID'],
+                          subhalos['SubhaloHalfmassRadStars']) :
+        filename = cutoutDir + 'cutout_{}.hdf5'.format(subID)
+        numpyfilename = cutoutDir + 'cutout_{}_masked.npz'.format(subID)
+        subID_URL = 'http://www.tng-project.org/api/{}/snapshots/z={}/subhalos/{}'.format(
+            simName, redshift, subID)
         
+        # check if the cutout file exists
+        if not exists(filename) :
+            # retrieve information about the galaxy at the redshift of interest
+            sub = get(subID_URL)
+            
+            # save the cutout file into the output directory
+            get(sub['meta']['url'] + '/cutout.hdf5', directory=cutoutDir,
+                params=params)
+        
+        # check if the cutout file exists and if the numpy file exists
+        if exists(filename) and not exists(numpyfilename) :
+            # retrieve information about the galaxy at the redshift of interest
+            sub = get(subID_URL)
+            
+            # resave masked data into a numpy file for faster loading, and
+            # to take up less disk space
+            resave(filename, numpyfilename, sub, radius=2*R_e)
+    
+    return
+
+def download_all_mpbs(simName='TNG50-1', snapNum=99, redshift=0.0) :
+    
+    mpbDir = mpbPath(simName, snapNum)
+    groupsDir = gcPath(simName, snapNum)
+    
+    # open the table of subhalos in the sample that we want SFHs for
+    subhalos = Table.read(
+        groupsDir + 'subhalos_catalog_{}_{}_sample.fits'.format(simName, snapNum))
+    
+    for subID in subhalos['SubhaloID'] :
+        filename = mpbDir + 'sublink_mpb_{}.hdf5'.format(subID)
+        subID_URL = 'http://www.tng-project.org/api/{}/snapshots/z={}/subhalos/{}'.format(
+            simName, redshift, subID)
+        
+        # check if the main progenitor branch file exists
+        if not exists(filename) :
+            # retrieve information about the galaxy at the redshift of interest
+            sub = get(subID_URL)
+            
+            # save the main progenitor branch file into the output directory
+            get(sub['trees']['sublink_mpb'], directory=mpbDir)
+    
+    return
+
+def history_from_cutout(numpyfilename, redshift=0.0) :
+    
+    # get the redshifts for all the snapshots
+    table = Table.read('output/snapshot_redshifts.fits')
+    redshifts = np.flip(table['Redshift'])
+    
+    # include an initial and final redshift
+    redshifts = np.concatenate(([0.0], redshifts, [np.inf]))
+    
+    # calculate the lookbacktimes edges
+    lookbacktimes = cosmo.lookback_time(redshifts).value
+    lookbacktime_edges = lookbacktimes[:-1] + np.diff(lookbacktimes)/2
+    
+    '''
+    # number of bins in lookback time
+    Ntimes = 100
+    
+    # define the SFH bin boundaries in Gyr
+    lookbacktime_edges = np.logspace(-4, np.log10(cosmo.age(redshift).value),
+                                     num=Ntimes+1)
+    lookbacktimes = lookbacktime_edges[:-1] + np.diff(lookbacktime_edges)/2
+    '''
+    
+    # load information from saved numpy file
+    numpyfile = np.load(numpyfilename)
+    formation_ages = numpyfile['formation_ages']
+    # metallicities = numpyfile['metallicities']
+    initial_masses = numpyfile['initial_masses']
+    
+    # convert the formation_ages (in units of scalefactor) to redshifts
+    formation_redshifts = 1.0/formation_ages - 1
+    
+    # determine the formation ages in terms of lookback times
+    formation_lookbacktimes = (cosmo.lookback_time(formation_redshifts).value -
+                               cosmo.lookback_time(redshift).value)
+    
+    # histogram the data to determine SFH(t) and Z(t)
+    SFR, _ = np.histogram(formation_lookbacktimes, bins=lookbacktime_edges,
+                          weights=np.power(10, initial_masses))
+    # zz, _ = np.histogram(formation_lookbacktimes, bins=lookbacktime_edges,
+    #                      weights=np.power(10, initial_masses)*metallicities)
+    
+    # mask the metallicity history based on if the SFH is valid
+    # zh, mask = np.zeros(Ntimes), sfh > 0
+    # zh[mask] = zz[mask]/sfh[mask]
+    
+    # plot the results
+    '''
+    lengths = np.diff(lookbacktime_edges)*1e9
+    plt.plot_simple_dumb(lookbacktimes, SFR/lengths,
+                         xlabel=r'$t_{\rm lookback}$ (Gyr)',
+                         ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
+                         xmin=-0.1, xmax=13.8)
+    '''
+    lengths = np.diff(lookbacktime_edges)*1e9
+    # plt.plot_simple_dumb(lookbacktimes[1:-1], SFR/lengths,
+    #                      xlabel=r'$t_{\rm lookback}$ (Gyr)',
+    #                      ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
+    #                      xmin=-0.1, xmax=13.8)
+    
+    return lookbacktimes[1:-1], SFR/lengths
+
+def history_from_mpb(mpbfilename) :
+    
+    # read the main progenitor branch merger tree and load relevant properties
+    with h5py.File(mpbfilename, 'r') as mpb :
+        SFR = mpb['SubhaloSFRinRad'][:] # most recent to earlier time
+    
+    # get the redshifts for all the snapshots
+    table = Table.read('output/snapshot_redshifts.fits')
+    redshifts = np.flip(table['Redshift'])
+    lookbacktimes = cosmo.lookback_time(redshifts).value
+    
+    # some galaxies aren't in very early snapshots
+    lookbacktimes = lookbacktimes[:len(SFR)]
+    
+    # plot the results
+    # plt.plot_simple_dumb(lookbacktimes, SFR,
+    #                      xlabel=r'$t_{\rm lookback}$ (Gyr)',
+    #                      ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
+    #                      xmin=-0.1, xmax=13.8)
+    
+    return lookbacktimes, SFR
+
+def resave(filename, numpyfilename, sub, radius=None) :
+    
+    with h5py.File(filename, 'r') as hf :
+        # get the formation ages (in units of scalefactor), metallicities, and
+        # initial masses of all the star particles
+        formation_ages = hf['PartType4']['GFM_StellarFormationTime'][:]
+        metallicities = hf['PartType4']['GFM_Metallicity'][:]
+        initial_masses = hf['PartType4']['GFM_InitialMass'][:]
+        
+        # if the radius is provided, only use star particles within that radius
         if radius :
             dx = hf['PartType4']['Coordinates'][:, 0] - sub['pos_x']
             dy = hf['PartType4']['Coordinates'][:, 1] - sub['pos_y']
             dz = hf['PartType4']['Coordinates'][:, 2] - sub['pos_z']
             rr = np.sqrt(np.square(dx) + np.square(dy) + np.square(dz))
-            # remove wind particles and cut to radius
-            ww = np.where((a_form > 0) & (rr < radius))
+            
+            # convert ckpc/h to physical kpc, and note that scale_factor=1 at z=0
+            rr = rr/cosmo.h
+            
+            # mask out wind particles and constrain to radius
+            mask = np.where((formation_ages > 0) & (rr < radius))
         else :
-            ww = np.where(a_form > 0) # remove wind particles
-        
-        metals = hf['PartType4']['GFM_Metallicity'][:]
-        metals = metals[ww]
-        
-        mass = hf['PartType4']['GFM_InitialMass'][:]
-        mass = convert_mass_units(mass[ww])
-        
-        # scale factor to redshift
-        z_form = 1.0/a_form[ww] - 1
-        
-        # redshift for lookback time
-        lbt_form = (cosmo.lookback_time(z_form).value -
-                    cosmo.lookback_time(redshift).value)
-        
-        # plt.hist(age, weights=mass,bins=sfh_t_boundary)
-        sfh, xx = np.histogram(lbt_form, bins=lbtimes_edge, weights = mass)
-        zz, xx = np.histogram(lbt_form, bins=lbtimes_edge,
-                              weights = mass*metals)
-        
-        # if SFH < 0, Zh = 0
-        zh = np.zeros(Nt)
-        mask = sfh > 0
-        zh[mask] = zz[mask] / sfh[mask]
-        
-        # print('mean metallicity is: '+str(np.mean(metals)))
+            mask = np.where(formation_ages > 0) # mask out wind particles
     
-    return sfh, zh
-
-def get_subhalo(baseUrl, sim_name, redshift, idn) :
-    return get(baseUrl + '{}/snapshots/z={}/subhalos/{}'.format(
-        sim_name, redshift, idn))
-
-def get_subhalos(baseUrl, sim_name, snap) :
-    rr = get(baseUrl)
+    #  mask out the wind particles and/or regions and save to numpy file
+    np.savez(numpyfilename,
+             formation_ages=formation_ages[mask],
+             metallicities=metallicities[mask],
+             initial_masses=convert_mass_units(initial_masses[mask]))
     
-    # choose simulation and download info
-    names = [sim['name'] for sim in rr['simulations']]
-    isim = names.index(sim_name)
-    sim = get(rr['simulations'][isim]['url'])
-    
-    # get snapshots
-    snaps = get(sim['snapshots'])
-    
-    snapshot = get(snaps[snap]['url'])
-    subs = get(snapshot['subhalos'])
-    
-    return subs
+    return
 
-def get_subhalo_from_subs(subs, idn, overwrite=False) :
-    return get(subs['results'][idn]['url'])
+def save_comparisons() :
+    
+    # open the table of subhalos in the sample that we want SFHs for
+    subhalos = Table.read(
+        'TNG50-1/output/groups_099/subhalos_catalog_TNG50-1_99_sample.fits')
+    
+    for subID in subhalos['SubhaloID'][:100] :
+        # subIDs 10, 25, 40 are good examples of them matching up
+        # 30, 50 are good examples of a mismatch
+        
+        times_mpb, SFR_mpb = history_from_mpb(
+            'TNG50-1/output/mpbs_099/sublink_mpb_{}.hdf5'.format(subID))
+        times_cut, SFR_cut = history_from_cutout(
+            'TNG50-1/output/cutouts_099/cutout_{}_masked.npz'.format(subID))
+        
+        plt.plot_simple_multi([times_mpb, times_cut], [SFR_mpb, SFR_cut],
+                              ['MPB', 'star ages'], ['k', 'r'], ['', ''],
+                              ['-', '-'], alphas=[1, 1], scale='linear', loc=0,
+                              xlabel=r'$t_{\rm lookback}$ (Gyr)',
+                              ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
+                              xmin=-0.1, xmax=13.8, save=True,
+                              outfile='output/SFH_subID_{}.png'.format(subID))
+    
+    return
 
-def get_subhalo_properties(sub, fields=[]) :
-    data = {}
-    for field in fields :
-        data[field] = sub[field]
-    return data
 
-def get_histories(simName, snapNum, redshift, basePath, groupName, params_load) :
+
+
+
+
+
+
+def all_histories(simName='TNG50-1', snapNum=99, redshift=0.0) :
+    
+    # mpbfilename = mpbDir + 'sublink_mpb_{}.hdf5'.format(subID)
     
     groupsDir = gcPath(simName, snapNum)
     
-    infile_selection = groupsDir + 'subIDs_in_selection.txt'
-    outfile = groupsDir + 'sfhs_{}_selected.hdf5'.format(simName)
+    outfile = groupsDir + 'SFHs_sample.hdf5'
     
     # check if the outfile exists and has good SFHs
-    if os.path.exists(outfile) :
-        with h5py.File(outfile, 'r') as hf :
-            if 'sfhs' in hf.keys() :
-                if np.all(~np.isnan(hf['sfhs'])) :
-                    print('File already exists with all non-NaN SFHs')
-                    return
+    # if exists(outfile) :
+    #     with h5py.File(outfile, 'r') as hf :
+    #         if 'SFH' in hf.keys() :
+    #             if np.all(~np.isnan(hf['SFH'])) :
+    #                 print('File already exists with all non-NaN SFHs')
     
-    if not os.path.exists(outfile) :
-        fields = ['SubhaloMassType',
-                  'SubhaloFlag',
-                  'SubhaloParent',
-                  'SubhaloSFRinRad',
-                  'SubhaloHalfmassRadType']
-        data_subhalos = api.groupcat.loadSubhalos(fields=fields, **params_load)
-        
-        data_subhalos['SubhaloMassType_stars_Msun'] = convert_mass_units(
-            get_stars( data_subhalos['SubhaloMassType']))
-        data_subhalos['logmass_stars'] = np.log10(
-            data_subhalos['SubhaloMassType_stars_Msun'] )
-        data_subhalos['SubhaloHalfmassRadType_stars'] = get_stars(
-            data_subhalos['SubhaloHalfmassRadType'])
-        
-        # select galaxies for which we want SFHs
-        SubID_in_selection = np.loadtxt(infile_selection).astype(int)
-        
-        # choose all
-        NN = data_subhalos['count']
-        SubID = np.arange(NN)
-        sel = np.zeros(NN, dtype=bool)
-        sel[SubID_in_selection] = True
-        
-        Ng = len(SubID_in_selection)
+    # open the table of subhalos in the sample that we want SFHs for
+    subhalos = Table.read(
+        groupsDir + 'subhalos_catalog_{}_{}_sample.fits'.format(simName, snapNum))
     
-        # number of bins in lookback time
-        Nt = 500
-        
-        # bin boundaries, in Gyr
-        tuniv = cosmo.age(redshift).value
-        lbtimes_edge = np.logspace(-4, np.log10(tuniv), num = Nt+1)
-        lbtimes = lbtimes_edge[:-1] + np.diff(lbtimes_edge)/2.0
-        
-        print('Number of galaxies in selection: {}'.format(Ng))
-        print('Number of time bins: {}'.format(Nt))
-        
-        print('Writing to ', outfile)
-        
-        with h5py.File(outfile, 'w') as hf :    
-            # subID
-            add_dataset(hf, 'subID', SubID)
-            add_dataset(hf, 'subID_in_selection', SubID[sel])
-            add_dataset(hf, 'SubhaloSFRinRad',
-                        data_subhalos['SubhaloSFRinRad'][sel])
-            add_dataset(hf, 'SubhaloFlag', data_subhalos['SubhaloFlag'][sel])
-            add_dataset(hf, 'SubhaloMassType_stars_Msun',
-                        data_subhalos['SubhaloMassType_stars_Msun'][sel])
-            add_dataset(hf, 'SubhaloHalfmassRadType_stars',
-                        data_subhalos['SubhaloHalfmassRadType_stars'][sel])
+    # number of galaxies; number of bins in lookback time
+    Ngals = len(subhalos)
+    
+    # check if the outfile exists, and if not, populate key information into it
+    if not exists(outfile) :
+        with h5py.File(outfile, 'w') as hf :
+            # add basic information from the table into the HDF5 file
+            add_dataset(hf, subhalos['SubhaloID'], 'SubhaloID')
+            add_dataset(hf, subhalos['SubhaloFlag'], 'SubhaloFlag')
+            add_dataset(hf, subhalos['SubhaloMassStars'], 'SubhaloMassStars')
+            add_dataset(hf, subhalos['SubhaloSFRinRad'], 'SubhaloSFRinRad')
+            add_dataset(hf, subhalos['SubhaloHalfmassRadStars'],
+                        'SubhaloHalfmassRadStars')
             
-            add_dataset(hf, 'zh', np.full((Ng, Nt), np.nan))
-            add_dataset(hf, 'sfh', np.full((Ng, Nt), np.nan))
-            
-            add_dataset(hf, 'primary_flag', np.full(Ng, np.nan))
-            
-            # lookback time bin centers and edges
-            add_dataset(hf, 'Redshift', np.array([redshift]),
+            # add information about the lookback time bin centers and edges
+            add_dataset(hf, np.array([redshift]), 'redshift',
                         dtype=type(redshift))
-            add_dataset(hf, 'lbtimes', lbtimes )
-            add_dataset(hf, 'lbtimes_edge', lbtimes_edge)
-        
+            # add_dataset(hf, lookbacktimes, 'lookbacktimes')
+            # add_dataset(hf, lookbacktime_edges, 'lookbacktime_edges')
+            
+            # add empty SFH information into the HDF5 file to populate later
+            add_dataset(hf, np.full(Ngals, np.nan), 'primary_flag')
+            # add_dataset(hf, np.full((Ngals, Ntimes), np.nan), 'SFH')
+            # add_dataset(hf, np.full((Ngals, Ntimes), np.nan), 'Zhistory')
+    
+    # if the outfile exists, read the relevant information
+    if exists(outfile) :
         with h5py.File(outfile, 'r') as hf :
-            x_sfhs = hf['sfh'][:]
-            x_zhs = hf['zh'][:]
-            subID_in_selection = hf['subID_in_selection'][:]
-            subhalfmassRads = hf['SubhaloHalfmassRadType_stars'][:]
+            subIDs = hf['SubhaloID'][:]
+            R_e = hf['SubhaloHalfmassRadStars'][:]
+            x_sfhs = hf['SFH'][:]
+            # x_zhs = hf['Zhistory'][:]
+    
+    # now iterate over every subID in subIDs and get the SFH for that subID
+    for i, subID in enumerate(subIDs) :
         
-        # subs = get_subhalos(baseUrl, sim_name, snap)
-        
-        for i, subID in enumerate(subID_in_selection) :
-            if np.all(np.isnan(x_sfhs[i, :])) :
-                
-                # sub = get_subhalo(subs, subID, overwrite=False)
-                sub = get_subhalo(baseURL, simName, redshift, subID)
-                
-                out = get_subhalo_properties(sub, fields=['primary_flag'])
-                primary_flag = out['primary_flag']
-                
-                sfh, zh = get_history(sub, subID, lbtimes_edge, Nt,
-                                      radius=2*subhalfmassRads[i],
-                                      overwrite=False, redshift=redshift)
-                
-                with h5py.File(outfile, 'a') as hf :
-                    hf['sfh'][i, :] = sfh
-                    hf['zh'][i, :] = zh
-                    hf['primary_flag'][i] = primary_flag
-        
-        return
+        # if the SFHs don't exist for the galaxy, populate the SFHs
+        if np.all(np.isnan(x_sfhs[i, :])) :
+            
+            # retrieve information about the galaxy at the redshift of interest
+            sub = get(
+                'http://www.tng-project.org/api/{}/snapshots/z={}/subhalos/{}'.format(
+                    simName, redshift, subID))
+            
+            # determine the SFH and metallicity history for the galaxy
+            SFH = history_from_cutout(simName, snapNum, sub, subID,
+                                      lookbacktime_edges, Ntimes,
+                                      radius=2*R_e[i], overwrite=False,
+                                      redshift=redshift)
+            
+            # append those values, and a flag if the galaxy is the primary galaxy,
+            # into the outfile
+            with h5py.File(outfile, 'a') as hf :
+                hf['SFH'][i, :] = SFH
+                # hf['Zhistory'][i, :] = Zhistory
+                hf['primary_flag'][i] = sub['primary_flag']
+    
+    return

@@ -134,6 +134,10 @@ dmypy.json
 
 # generated files
 *.fits
+*.npz
+*.png
+*.xlsx
 
 # additional information
 *boneyard*
+*help*

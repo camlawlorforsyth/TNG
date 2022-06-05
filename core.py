@@ -1,6 +1,7 @@
 
 import numpy as np
 
+from astropy.table import Table
 import requests
 
 def add_dataset(h5file, data, label, dtype=None) :
@@ -55,3 +56,19 @@ def offsetPath(simName) :
 
 def snapPath(simName, snapNum) :
     return bsPath(simName) + '/snapdir_{:3.0f}/'.format(snapNum).replace(' ', '0')
+
+def snapshot_redshifts(simName) :
+    
+    snaps = get('http://www.tng-project.org/api/{}/snapshots/'.format(simName))
+    
+    redshifts = []
+    snapNums = []
+    
+    for snap in snaps :
+        snapNums.append(snap['number'])
+        redshifts.append(snap['redshift'])
+    
+    table = Table([snapNums, redshifts], names=('snapNum', 'Redshift'))
+    table.write('output/snapshot_redshifts_new.fits')
+    
+    return
