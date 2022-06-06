@@ -128,13 +128,9 @@ def history_from_cutout(numpyfilename, redshift=0.0) :
                          ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
                          xmin=-0.1, xmax=13.8)
     '''
-    lengths = np.diff(lookbacktime_edges)*1e9
-    # plt.plot_simple_dumb(lookbacktimes[1:-1], SFR/lengths,
-    #                      xlabel=r'$t_{\rm lookback}$ (Gyr)',
-    #                      ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
-    #                      xmin=-0.1, xmax=13.8)
+    time_in_bins = np.diff(lookbacktime_edges)*1e9 # in yr
     
-    return lookbacktimes[1:-1], SFR/lengths
+    return lookbacktimes[1:-1], SFR/time_in_bins
 
 def history_from_mpb(mpbfilename) :
     
@@ -149,12 +145,6 @@ def history_from_mpb(mpbfilename) :
     
     # some galaxies aren't in very early snapshots
     lookbacktimes = lookbacktimes[:len(SFR)]
-    
-    # plot the results
-    # plt.plot_simple_dumb(lookbacktimes, SFR,
-    #                      xlabel=r'$t_{\rm lookback}$ (Gyr)',
-    #                      ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
-    #                      xmin=-0.1, xmax=13.8)
     
     return lookbacktimes, SFR
 
@@ -196,31 +186,26 @@ def save_comparisons() :
     subhalos = Table.read(
         'TNG50-1/output/groups_099/subhalos_catalog_TNG50-1_99_sample.fits')
     
-    for subID in subhalos['SubhaloID'][:100] :
+    for subID in [97] : #subhalos['SubhaloID'] :
         # subIDs 10, 25, 40 are good examples of them matching up
         # 30, 50 are good examples of a mismatch
         
+        # save the SFHs using the two different methods
         times_mpb, SFR_mpb = history_from_mpb(
             'TNG50-1/output/mpbs_099/sublink_mpb_{}.hdf5'.format(subID))
         times_cut, SFR_cut = history_from_cutout(
             'TNG50-1/output/cutouts_099/cutout_{}_masked.npz'.format(subID))
         
+        # plot and compare the results
         plt.plot_simple_multi([times_mpb, times_cut], [SFR_mpb, SFR_cut],
                               ['MPB', 'star ages'], ['k', 'r'], ['', ''],
                               ['-', '-'], alphas=[1, 1], scale='linear', loc=0,
                               xlabel=r'$t_{\rm lookback}$ (Gyr)',
                               ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
-                              xmin=-0.1, xmax=13.8, save=True,
+                              xmin=-0.1, xmax=13.8, save=False,
                               outfile='output/SFH_subID_{}.png'.format(subID))
     
     return
-
-
-
-
-
-
-
 
 def all_histories(simName='TNG50-1', snapNum=99, redshift=0.0) :
     
