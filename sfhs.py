@@ -23,8 +23,11 @@ def download_all_cutouts(simName='TNG50-1', snapNum=99, redshift=0.0) :
     subhalos = Table.read(
         groupsDir + 'subhalos_catalog_{}_{}_sample.fits'.format(simName, snapNum))
     
-    for subID, R_e in zip(subhalos['SubhaloID'],
-                          subhalos['SubhaloHalfmassRadStars']) :
+    subIDs = subhalos['SubhaloID']
+    halfMassRadii = subhalos['SubhaloHalfmassRadStars']
+    # badsubIDs = [] # IDs that aren't available - not on server
+    
+    for subID, R_e in zip(subIDs, halfMassRadii) :
         filename = cutoutDir + 'cutout_{}.hdf5'.format(subID)
         numpyfilename = cutoutDir + 'cutout_{}_masked.npz'.format(subID)
         subID_URL = 'http://www.tng-project.org/api/{}/snapshots/z={}/subhalos/{}'.format(
@@ -59,7 +62,10 @@ def download_all_mpbs(simName='TNG50-1', snapNum=99, redshift=0.0) :
     subhalos = Table.read(
         groupsDir + 'subhalos_catalog_{}_{}_sample.fits'.format(simName, snapNum))
     
-    for subID in subhalos['SubhaloID'] :
+    subIDs = subhalos['SubhaloID']
+    badsubIDs = [64192] # IDs that aren't available - not on server
+    
+    for subID in [subID for subID in subIDs if subID not in badsubIDs] :
         filename = mpbDir + 'sublink_mpb_{}.hdf5'.format(subID)
         subID_URL = 'http://www.tng-project.org/api/{}/snapshots/z={}/subhalos/{}'.format(
             simName, redshift, subID)
