@@ -231,32 +231,33 @@ def save_comparisons() :
 
 def all_histories(simName='TNG50-1', snapNum=99, redshift=0.0) :
     
-    # mpbfilename = mpbDir + 'sublink_mpb_{}.hdf5'.format(subID)
-    
     groupsDir = gcPath(simName, snapNum)
     
     outfile = groupsDir + 'SFHs_sample.hdf5'
     
     # check if the outfile exists and has good SFHs
-    # if exists(outfile) :
-    #     with h5py.File(outfile, 'r') as hf :
-    #         if 'SFH' in hf.keys() :
-    #             if np.all(~np.isnan(hf['SFH'])) :
-    #                 print('File already exists with all non-NaN SFHs')
+    if exists(outfile) :
+        with h5py.File(outfile, 'r') as hf :
+            if 'SFH' in hf.keys() :
+                if np.all(~np.isnan(hf['SFH'])) :
+                    print('File already exists with all non-NaN SFHs')
     
     # open the table of subhalos in the sample that we want SFHs for
     subhalos = Table.read(
         groupsDir + 'subhalos_catalog_{}_{}_sample.fits'.format(simName, snapNum))
     
+    # define the lookbacktimes and their corresponding edges
+    lookbacktimes = np.arange(0.05, 14, 0.1)
+    lookbacktime_edges = np.arange(0, 14.1, 0.1) # bins of 100 Myr, in Gyr
+    
     # number of galaxies; number of bins in lookback time
-    Ngals = len(subhalos)
+    Ngals, Ntimes = len(subhalos), len(lookbacktimes)
     
     # check if the outfile exists, and if not, populate key information into it
     if not exists(outfile) :
         with h5py.File(outfile, 'w') as hf :
             # add basic information from the table into the HDF5 file
             add_dataset(hf, subhalos['SubhaloID'], 'SubhaloID')
-            add_dataset(hf, subhalos['SubhaloFlag'], 'SubhaloFlag')
             add_dataset(hf, subhalos['SubhaloMassStars'], 'SubhaloMassStars')
             add_dataset(hf, subhalos['SubhaloSFRinRad'], 'SubhaloSFRinRad')
             add_dataset(hf, subhalos['SubhaloHalfmassRadStars'],
@@ -265,44 +266,29 @@ def all_histories(simName='TNG50-1', snapNum=99, redshift=0.0) :
             # add information about the lookback time bin centers and edges
             add_dataset(hf, np.array([redshift]), 'redshift',
                         dtype=type(redshift))
-            # add_dataset(hf, lookbacktimes, 'lookbacktimes')
-            # add_dataset(hf, lookbacktime_edges, 'lookbacktime_edges')
+            add_dataset(hf, lookbacktimes, 'lookbacktimes')
+            add_dataset(hf, lookbacktime_edges, 'lookbacktime_edges')
             
             # add empty SFH information into the HDF5 file to populate later
-            add_dataset(hf, np.full(Ngals, np.nan), 'primary_flag')
-            # add_dataset(hf, np.full((Ngals, Ntimes), np.nan), 'SFH')
-            # add_dataset(hf, np.full((Ngals, Ntimes), np.nan), 'Zhistory')
+            add_dataset(hf, np.full((Ngals, Ntimes), np.nan), 'SFH')
     
     # if the outfile exists, read the relevant information
     if exists(outfile) :
         with h5py.File(outfile, 'r') as hf :
             subIDs = hf['SubhaloID'][:]
-            R_e = hf['SubhaloHalfmassRadStars'][:]
             x_sfhs = hf['SFH'][:]
-            # x_zhs = hf['Zhistory'][:]
     
     # now iterate over every subID in subIDs and get the SFH for that subID
     for i, subID in enumerate(subIDs) :
         
         # if the SFHs don't exist for the galaxy, populate the SFHs
         if np.all(np.isnan(x_sfhs[i, :])) :
+            # determine the SFH for the galaxy
+            _, SFH = history_from_cutout(
+                'TNG50-1/output/cutouts_099/cutout_{}_masked.npz'.format(subID))
             
-            # retrieve information about the galaxy at the redshift of interest
-            sub = get(
-                'http://www.tng-project.org/api/{}/snapshots/z={}/subhalos/{}'.format(
-                    simName, redshift, subID))
-            
-            # determine the SFH and metallicity history for the galaxy
-            SFH = history_from_cutout(simName, snapNum, sub, subID,
-                                      lookbacktime_edges, Ntimes,
-                                      radius=2*R_e[i], overwrite=False,
-                                      redshift=redshift)
-            
-            # append those values, and a flag if the galaxy is the primary galaxy,
-            # into the outfile
+            # append those values into the outfile
             with h5py.File(outfile, 'a') as hf :
                 hf['SFH'][i, :] = SFH
-                # hf['Zhistory'][i, :] = Zhistory
-                hf['primary_flag'][i] = sub['primary_flag']
     
     return
