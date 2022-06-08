@@ -116,7 +116,10 @@ def history_from_cutout(numpyfilename, redshift=0.0) :
     formation_lookbacktimes = (cosmo.lookback_time(formation_redshifts).value -
                                cosmo.lookback_time(redshift).value)
     
-    # histogram the data to determine SFH(t) and Z(t)
+    lookbacktime_edges = np.arange(0, 14.1, 0.1) # bins of 100 Myr, in Gyr
+    
+    # histogram the data to determine SFH(t) and Z(t), and note that the "SFR"
+    # is really the total stellar content formed in each time bin
     SFR, _ = np.histogram(formation_lookbacktimes, bins=lookbacktime_edges,
                           weights=np.power(10, initial_masses))
     # zz, _ = np.histogram(formation_lookbacktimes, bins=lookbacktime_edges,
@@ -126,27 +129,30 @@ def history_from_cutout(numpyfilename, redshift=0.0) :
     # zh, mask = np.zeros(Ntimes), sfh > 0
     # zh[mask] = zz[mask]/sfh[mask]
     
-    # plot the results
-    '''
-    lengths = np.diff(lookbacktime_edges)*1e9
-    plt.plot_simple_dumb(lookbacktimes, SFR/lengths,
-                         xlabel=r'$t_{\rm lookback}$ (Gyr)',
-                         ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
-                         xmin=-0.1, xmax=13.8)
-    '''
-    time_in_bins = np.diff(lookbacktime_edges)*1e9 # in yr
+    # time_in_bins = np.diff(lookbacktime_edges)*1e9 # in yr
     
-    return lookbacktimes[1:-1], SFR/time_in_bins
+    # return lookbacktimes[1:-1], SFR/time_in_bins
+    
+    lookbacktimes = np.arange(0.05, 14, 0.1) # for bins of delta(t) = 100 Myr
+    
+    return lookbacktimes, SFR/1e8
 
 def history_from_mpb(mpbfilename) :
     
     # read the main progenitor branch merger tree and load relevant properties
     with h5py.File(mpbfilename, 'r') as mpb :
         SFR = mpb['SubhaloSFRinRad'][:] # most recent to earlier time
+        snaps = mpb['SnapNum'][:]
     
     # get the redshifts for all the snapshots
     table = Table.read('output/snapshot_redshifts.fits')
-    redshifts = np.flip(table['Redshift'])
+    
+    # sort the redshifts according to the snapshot order from the MPB file
+    # could also simply use redshifts = np.flip(table['Redshift'])
+    redshifts = []
+    for snap in snaps :
+        redshifts.append(table['Redshift'][np.where(table['SnapNum'] == snap)][0])
+    
     lookbacktimes = cosmo.lookback_time(redshifts).value
     
     # some galaxies aren't in very early snapshots
@@ -192,13 +198,11 @@ def save_comparisons() :
     subhalos = Table.read(
         'TNG50-1/output/groups_099/subhalos_catalog_TNG50-1_99_sample.fits')
     
-    for subID in [97] : #subhalos['SubhaloID'] :
-        # subIDs 10, 25, 40 are good examples of them matching up
-        # 30, 50 are good examples of a mismatch
-        
+    for subID in subhalos['SubhaloID'] :
         # save the SFHs using the two different methods
         times_mpb, SFR_mpb = history_from_mpb(
             'TNG50-1/output/mpbs_099/sublink_mpb_{}.hdf5'.format(subID))
+        
         times_cut, SFR_cut = history_from_cutout(
             'TNG50-1/output/cutouts_099/cutout_{}_masked.npz'.format(subID))
         
@@ -210,7 +214,19 @@ def save_comparisons() :
                               ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
                               xmin=-0.1, xmax=13.8, save=False,
                               outfile='output/SFH_subID_{}.png'.format(subID))
+        
+    '''
+    for subID in [97] : # [52, 58, 87, 97, 101]
+        # subIDs 10, 25, 40 are good examples of them matching up
+        # 30, 50 are good examples of a mismatch
     
+        snapNum_mpb, SFR_mpb = history_from_mpb(
+            'TNG50-1/output/mpbs_099/sublink_mpb_{}.hdf5'.format(subID))
+        plt.plot_simple_dumb(snapNum_mpb, SFR_mpb,
+                             xlabel='Snapshot Number', #r'$t_{\rm lookback}$ (Gyr)',
+                             ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
+                             xmin=-1, xmax=100)
+    '''
     return
 
 def all_histories(simName='TNG50-1', snapNum=99, redshift=0.0) :
