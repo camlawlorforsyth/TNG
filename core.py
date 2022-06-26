@@ -68,7 +68,7 @@ def snapshot_redshifts(simName) :
         snapNums.append(snap['number'])
         redshifts.append(snap['redshift'])
     
-    table = Table([snapNums, redshifts], names=('snapNum', 'Redshift'))
-    table.write('output/snapshot_redshifts_new.fits')
+    table = Table([snapNums, redshifts], names=('SnapNum', 'Redshift'))
+    table.write('output/snapshot_redshifts.fits')
     
     return
