@@ -34,3 +34,6 @@ print(parent_fof.keys())
 # mpb1 = get(sub['trees']['sublink_mpb'])
 
 '''
+
+# lookbacktime for z = 1
+# loc = np.argmax(lookbacktimes > cosmo.lookback_time(1).value)

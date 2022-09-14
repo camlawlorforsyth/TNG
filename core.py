@@ -60,10 +60,8 @@ def snapPath(simName, snapNum) :
 def snapshot_redshifts(simName) :
     
     snaps = get('http://www.tng-project.org/api/{}/snapshots/'.format(simName))
-    
-    redshifts = []
-    snapNums = []
-    
+        
+    snapNums, redshifts = [], []
     for snap in snaps :
         snapNums.append(snap['number'])
         redshifts.append(snap['redshift'])

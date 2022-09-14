@@ -136,8 +136,10 @@ dmypy.json
 *.fits
 *.npz
 *.png
+*.pkl
 *.xlsx
 
 # additional information
-*boneyard*
+boneyard/*.ipynb
+boneyard/*.pdf
 *help*
