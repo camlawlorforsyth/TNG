@@ -21,7 +21,7 @@ def build_final_sample(simName, snapNum) :
     # join the tables
     table = join(subhalos, subhalo_flags, keys=['SubhaloID'])
     
-    # mask the resulting table based on the 'SubhaloFlag'
+    # mask the resulting table based on the 'SubhaloFlag' for "real" galaxies
     table = table[table['SubhaloFlag'] == True]
     
     # save the table

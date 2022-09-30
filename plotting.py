@@ -3,6 +3,7 @@ import copy
 import matplotlib.pyplot as plt
 
 from matplotlib import cm
+import matplotlib.colors as mcol
 from matplotlib.colors import LogNorm
 
 currentFig = 1
@@ -28,7 +29,7 @@ def histogram(data, label, title=None, bins=None, log=False, histtype='bar',
     if len(vlines) > 0 :
         for i in range(len(vlines)) :
             ax.axvline(vlines[i], ls='--', color=colors[i], lw=1, alpha=0.5,
-                        label=labels[i])
+                       label=labels[i])
     
     ax.set_xlabel('{}'.format(label), fontsize = 15)    
     
@@ -212,6 +213,53 @@ def plot_simple_multi(xs, ys, labels, colors, markers, styles, alphas,
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(ymin, ymax)
     # if labels[0] != '' :
+    ax.legend(facecolor='whitesmoke', framealpha=1, fontsize=15, loc=loc)
+    
+    plt.tight_layout()
+    
+    if save :
+        plt.savefig(outfile, bbox_inches='tight')
+        plt.close()
+    else :
+        plt.show()
+    
+    return
+
+def plot_simple_multi_with_times(xs, ys, labels, colors, markers, styles,
+                                 alphas, tsat, tonset, tquench,
+                                 xlabel=None, ylabel=None, title=None,
+                                 xmin=None, xmax=None, ymin=None, ymax=None,
+                                 figsizewidth=9.5, figsizeheight=7, scale='log',
+                                 loc=0, outfile=None, save=False) :
+    
+    global currentFig
+    fig = plt.figure(currentFig, figsize=(figsizewidth, figsizeheight))
+    currentFig += 1
+    plt.clf()
+    ax = fig.add_subplot(111)
+    
+    for i in range(len(xs)) :
+        ax.plot(xs[i], ys[i], marker=markers[i], linestyle=styles[i],
+                color=colors[i], label=labels[i], alpha=alphas[i])
+    
+    if (ymin == None) and (ymax == None) :
+        xmin, xmax, ymin, ymax = plt.axis()
+    cmap = mcol.LinearSegmentedColormap.from_list('BlRd',['b','r'])
+    ax.imshow([[0.,1.], [0.,1.]], extent=(tonset, tquench, ymin, ymax),
+               cmap=cmap, interpolation='bicubic', alpha=0.15, aspect='auto')
+    
+    ax.axvline(tsat, color='k', ls='--', label=r'$t_{\rm sat}$')
+    ax.axvline(tonset, color='b', ls=':', label=r'$t_{\rm onset}$', alpha=0.15)
+    ax.axvline(tquench, color='r', ls=':', label=r'$t_{\rm quench}$', alpha=0.15)
+    
+    ax.set_xscale(scale)
+    ax.set_yscale(scale)
+    
+    ax.set_xlabel(xlabel, fontsize=15)
+    ax.set_ylabel(ylabel, fontsize=15)
+    
+    ax.set_xlim(xmin, xmax)
+    ax.set_ylim(ymin, ymax)
     ax.legend(facecolor='whitesmoke', framealpha=1, fontsize=15, loc=loc)
     
     plt.tight_layout()

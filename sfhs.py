@@ -9,7 +9,7 @@ import h5py
 from catalogs import convert_mass_units
 from core import add_dataset, bsPath, cutoutPath, get
 
-def determine_all_histories(simName, snapNum, redshift) :
+def determine_all_histories(simName, snapNum) :
     
     # define the output directory and the output file
     outDir = bsPath(simName)
@@ -50,8 +50,7 @@ def determine_all_histories(simName, snapNum, redshift) :
                         'SubhaloHalfmassRadStars')
             
             # add information about the redshifts and most recent redshift
-            add_dataset(hf, np.array([redshift]), 'last_redshift',
-                        dtype=type(redshift))
+            add_dataset(hf, np.array([0.0]), 'last_redshift', dtype=float)
             add_dataset(hf, redshifts[1:-1], 'redshifts')
             
             # add information about the lookback time bin centers and edges
@@ -75,7 +74,7 @@ def determine_all_histories(simName, snapNum, redshift) :
             # determine the SFH for the galaxy
             SFH = history_from_cutout(lookbacktime_edges,
                 outDir + '/cutouts_0{}/cutout_{}_masked.npz'.format(snapNum, subID),
-                last_redshift=redshift)
+                last_redshift=0.0)
             
             # append those values into the outfile
             with h5py.File(outfile, 'a') as hf :
@@ -83,7 +82,7 @@ def determine_all_histories(simName, snapNum, redshift) :
     
     return
 
-def download_all_cutouts(simName, snapNum, redshift) :
+def download_all_cutouts(simName, snapNum) :
     
     cutoutDir = cutoutPath(simName, snapNum)
     outDir = bsPath(simName)
@@ -101,8 +100,8 @@ def download_all_cutouts(simName, snapNum, redshift) :
     for subID, R_e in zip(subIDs, halfMassRadii) :
         filename = cutoutDir + 'cutout_{}.hdf5'.format(subID)
         numpyfilename = cutoutDir + 'cutout_{}_masked.npz'.format(subID)
-        subID_URL = 'http://www.tng-project.org/api/{}/snapshots/z={}/subhalos/{}'.format(
-            simName, redshift, subID)
+        subID_URL = 'http://www.tng-project.org/api/{}/snapshots/{}/subhalos/{}'.format(
+            simName, snapNum, subID)
         
         # check if the cutout file exists
         if not exists(filename) :
