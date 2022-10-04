@@ -5,14 +5,13 @@ import numpy as np
 from astropy.cosmology import Planck15 as cosmo
 from astropy.table import Table
 import h5py
+import requests
 
 from core import add_dataset, bsPath, cutoutPath, get, mpbPath
 
 def determine_all_histories(simName, snapNum) :
     
-    # define the cutout, mpb, and output directories and the output file
-    cutoutDir = cutoutPath(simName, snapNum)
-    mpbDir = mpbPath(simName, snapNum)
+    # define the output directory and the output file
     outDir = bsPath(simName)
     outfile = outDir + '/{}_{}_sample_SFHs(t).hdf5'.format(simName, snapNum)
     
@@ -72,14 +71,12 @@ def determine_all_histories(simName, snapNum) :
     # now iterate over every subID in subIDs and get the SFH for that subID
     for i, subID in enumerate(subIDs) :
         
-        cutout_file = cutoutDir + 'cutout_{}.hdf5'.format(subID)
-        mpb_file = mpbDir + 'sublink_mpb_{}.hdf5'.format(subID)
-        
         # if the SFHs don't exist for the galaxy, populate the SFHs
         if np.all(np.isnan(x_sfhs[i, :])) :
-            # determine the SFH for the galaxy
-            mass_formed_in_time_bin = history_from_cutout(cutout_file, mpb_file,
-                                                          edges)
+            # determine the SFH for the galaxy, using edges in units of
+            # scalefactor as cosmo.age is slow for very large arrays
+            mass_formed_in_time_bin = history_from_cutout(simName, snapNum,
+                                                          subID, edges)
             SFH = mass_formed_in_time_bin/time_in_bins
             
             # append those values into the outfile
@@ -122,11 +119,8 @@ def download_all_mpbs(simName, snapNum) :
     
     # open the table of subhalos in the sample that we want SFHs for
     subhalos = Table.read(outDir + '/{}_{}_sample.fits'.format(simName, snapNum))
-    
-    subIDs = subhalos['SubhaloID']
-    badsubIDs = [64192] # IDs that aren't available - not on server
-    
-    for subID in [subID for subID in subIDs if subID not in badsubIDs] :
+        
+    for subID in subhalos['SubhaloID'] :
         outfile = mpbDir + 'sublink_mpb_{}.hdf5'.format(subID)
         url = 'http://www.tng-project.org/api/{}/snapshots/{}/subhalos/{}'.format(
             simName, snapNum, subID)
@@ -136,18 +130,39 @@ def download_all_mpbs(simName, snapNum) :
             # retrieve information about the galaxy at the redshift of interest
             sub = get(url)
             
-            # save the main progenitor branch file into the output directory
-            get(sub['trees']['sublink_mpb'], directory=mpbDir)
+            try :
+                # save the main progenitor branch file into the output directory
+                get(sub['trees']['sublink_mpb'], directory=mpbDir)
+            
+            # if the subID mpb file doesn't exist on the server, save critical
+            # the information to a similarly formatted hdf5 file
+            except requests.exceptions.HTTPError :
+                with h5py.File(outfile, 'w') as hf :
+                    # we need the center and the stellar halfmassradius to
+                    # compute the SFH
+                    centers = np.array([[sub['pos_x'], sub['pos_y'], sub['pos_z']]])
+                    halfmassradii = np.array([[sub['halfmassrad_gas'],
+                                               sub['halfmassrad_dm'], 0.0, 0.0,
+                                               sub['halfmassrad_stars'],
+                                               sub['halfmassrad_bhs']]])
+                    
+                    # add that information into the outfile
+                    add_dataset(hf, centers, 'SubhaloPos')
+                    add_dataset(hf, halfmassradii, 'SubhaloHalfmassRadType')
     
     return
 
-def history_from_cutout(cutout_file, mpb_file, edges) :
+def history_from_cutout(simName, snapNum, subID, edges) :
     
-    # cosmo.age(redshift) is slow for very large arrays, so we'll work in units
-    # of scalefactor
+    # define the cutout and mpb directories and the corresponding files
+    cutoutDir = cutoutPath(simName, snapNum)
+    mpbDir = mpbPath(simName, snapNum)
+    
+    cutout_file = cutoutDir + 'cutout_{}.hdf5'.format(subID)
+    mpb_file = mpbDir + 'sublink_mpb_{}.hdf5'.format(subID)
     
     with h5py.File(mpb_file, 'r') as hf :
-        # get the galaxy center coordinates and halfmassradius
+        # get the galaxy center coordinates and stellar halfmassradius
         center = hf['SubhaloPos'][0]
         radius = 2*hf['SubhaloHalfmassRadType'][:, 4][0] # in ckpc/h
     
