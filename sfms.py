@@ -91,7 +91,7 @@ def check_SFMS_at_z0(masses, SFHs, mass_bin_edges) :
         SFRs_at_z0[~q_mask] = np.log10(subsample_SFHs[:, -1][~q_mask])
         
         # plot and save the SFMS in each mass bin
-        outfile = 'output/SFMS/SFMS_z0_massBin_{}.png'.format(i)
+        outfile = 'output/SFMS(t)/SFMS_z0_massBin_{}.png'.format(i)
         plt.plot_scatter(subsample_masses, SFRs_at_z0, 'k', '', 'o',
                          xlabel=r'$\log(M_{*}/M_{\odot})$',
                          ylabel=r'$\log(SFR/M_{\odot}$ yr$^{-1}$)',
@@ -158,7 +158,7 @@ def check_SFMS_limits(simName, snapNum, times, mass_bin_edges, save=False) :
         lo, hi = dic[key]['lo_SFH'], dic[key]['hi_SFH']
         
         # plot and save the SFH limits in each mass bin
-        outfile = 'output/SFH_limits/SFMS_SFH_limits_massBin_{}.png'.format(i)
+        outfile = 'output/SFH_limits(t)/SFMS_SFH_limits_massBin_{}.png'.format(i)
         plt.plot_simple_multi([times, times], [lo, hi],
                               ['lo, hi', ''], ['grey', 'grey'], ['', ''],
                               ['-', '-'], [1, 1],
