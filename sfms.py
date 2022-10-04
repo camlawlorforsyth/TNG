@@ -65,7 +65,7 @@ def check_sSFR(times, masses, SFHs, mass_bin_edges) :
         # plot the 2D histograms
         title = '{}'.format(lo) + r'$< \log(M_{*}/M_{\odot}) <$' + '{}'.format(hi)
         plt.histogram_2d(xs[good], ys[good], bins=[np.arange(0, 14.5, 0.5), 20],
-                         xlabel=r'$t_{\rm lookback}$ (Gyr)',
+                         xlabel=r'$t$ (Gyr)',
                          ylabel=r'$\log({\rm sSFR} / {\rm yr}^{-1}$)',
                          title=title, xmin=0, xmax=13.8, ymin=-19, ymax=-8)
     
@@ -83,12 +83,12 @@ def check_SFMS_at_z0(masses, SFHs, mass_bin_edges) :
         # define an empty array to hold the SFRs at z = 0, and a mask for the
         # quiescent population
         SFRs_at_z0 = np.full(len(subsample_SFHs), np.nan)
-        q_mask = subsample_SFHs[:, 0] == 0
+        q_mask = subsample_SFHs[:, -1] == 0
         
         # populate that array with the corresponding SFRs, separating the
         # quiescent population from the star forming population
         SFRs_at_z0[q_mask] = -5 - np.random.rand(np.sum(q_mask))
-        SFRs_at_z0[~q_mask] = np.log10(subsample_SFHs[:, 0][~q_mask])
+        SFRs_at_z0[~q_mask] = np.log10(subsample_SFHs[:, -1][~q_mask])
         
         # plot and save the SFMS in each mass bin
         outfile = 'output/SFMS/SFMS_z0_massBin_{}.png'.format(i)
@@ -116,7 +116,7 @@ def compute_SFMS_limits(simName, snapNum, masses, SFHs, mass_bin_edges,
         # define a mask for the star forming main sequence (at z = 0)
         # population (which was verified in `check_SFMS_at_z0`), and select
         # those SFHs
-        SFMS_at_z0_mask = np.log10(subsample_SFHs[:, 0]) > logSF_tresh
+        SFMS_at_z0_mask = np.log10(subsample_SFHs[:, -1]) > logSF_tresh
         SFMS_at_z0 = subsample_SFHs[SFMS_at_z0_mask]
         
         # use the SFMS population to define the SFR +/- 2 sigma limits
@@ -162,7 +162,7 @@ def check_SFMS_limits(simName, snapNum, times, mass_bin_edges, save=False) :
         plt.plot_simple_multi([times, times], [lo, hi],
                               ['lo, hi', ''], ['grey', 'grey'], ['', ''],
                               ['-', '-'], [1, 1],
-                              xlabel=r'$t_{\rm lookback}$ (Gyr)',
+                              xlabel=r'$t$ (Gyr)',
                               ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
                               xmin=-0.1, xmax=13.8, scale='linear',
                               outfile=outfile, save=save)
