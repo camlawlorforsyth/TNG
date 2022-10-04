@@ -13,16 +13,16 @@ def check_SFMS_and_limits(simName, snapNum, mass_bin_edges, window_length,
     
     # define the input directory and the input file
     inDir = bsPath(simName)
-    infile = inDir + '/{}_{}_sample_SFHs.hdf5'.format(simName, snapNum)
+    infile = inDir + '/{}_{}_sample_SFHs(t).hdf5'.format(simName, snapNum)
     
     # open the SFHs for the sample of candidate primary and satellite systems
     with h5py.File(infile, 'r') as hf :
-        lookbacktimes = hf['lookbacktimes'][:]
+        times = hf['times'][:]
         masses = hf['SubhaloMassStars'][:]
         SFHs = hf['SFH'][:]
     
     # check the sSFR distribution in different mass bins
-    check_sSFR(lookbacktimes, masses, SFHs, mass_bin_edges)
+    check_sSFR(times, masses, SFHs, mass_bin_edges)
     
     # check the SFMS at z = 0 in different mass bins
     check_SFMS_at_z0(masses, SFHs, mass_bin_edges)
@@ -32,11 +32,11 @@ def check_SFMS_and_limits(simName, snapNum, mass_bin_edges, window_length,
                         window_length, polyorder)
     
     # check the limits and save plots to file
-    check_SFMS_limits(simName, snapNum, lookbacktimes, mass_bin_edges)
+    check_SFMS_limits(simName, snapNum, times, mass_bin_edges)
     
     return
 
-def check_sSFR(lookbacktimes, masses, SFHs, mass_bin_edges) :
+def check_sSFR(times, masses, SFHs, mass_bin_edges) :
         
     for lo, hi in zip(mass_bin_edges[:-1], mass_bin_edges[1:]) :
         
@@ -46,7 +46,7 @@ def check_sSFR(lookbacktimes, masses, SFHs, mass_bin_edges) :
         subsample_masses = masses[mask]
         
         # define an empty array to hold the sSFRs
-        sSFRs = np.full((len(subsample_SFHs), len(lookbacktimes)), np.nan)
+        sSFRs = np.full((len(subsample_SFHs), len(times)), np.nan)
         
         # set a lower limit for the SFH so that we can take the log more easily
         subsample_SFHs[subsample_SFHs == 0.0] = 1e-6
@@ -56,7 +56,7 @@ def check_sSFR(lookbacktimes, masses, SFHs, mass_bin_edges) :
             sSFRs[i] = np.log10(subsample_SFHs[i, :]) - subsample_masses[i]
         
         # create an array of those lookback times, and make a 1D array for the sSFRs
-        xs = np.array(list(lookbacktimes)*len(sSFRs))
+        xs = np.array(list(times)*len(sSFRs))
         ys = sSFRs.flatten()
         
         # mask out infinite values, coming from np.log10(0)
@@ -104,7 +104,7 @@ def compute_SFMS_limits(simName, snapNum, masses, SFHs, mass_bin_edges,
     
     # define the output directory and the output file
     outDir = bsPath(simName)
-    outfile = outDir + '/{}_{}_SFMS_SFH_limits.pkl'.format(simName, snapNum)
+    outfile = outDir + '/{}_{}_SFMS_SFH_limits(t).pkl'.format(simName, snapNum)
     
     dictionary = {}
     for i, (lo, hi) in enumerate(zip(mass_bin_edges[:-1], mass_bin_edges[1:])) :
@@ -143,12 +143,11 @@ def compute_SFMS_limits(simName, snapNum, masses, SFHs, mass_bin_edges,
     
     return
 
-def check_SFMS_limits(simName, snapNum, lookbacktimes, mass_bin_edges,
-                      save=False) :
+def check_SFMS_limits(simName, snapNum, times, mass_bin_edges, save=False) :
     
     # define the output directory and the output file
     inDir = bsPath(simName)
-    infile = inDir + '/{}_{}_SFMS_SFH_limits.pkl'.format(simName, snapNum)
+    infile = inDir + '/{}_{}_SFMS_SFH_limits(t).pkl'.format(simName, snapNum)
     
     # open the dictionary containing the SFH limits
     with open(infile, 'rb') as file :
@@ -160,7 +159,7 @@ def check_SFMS_limits(simName, snapNum, lookbacktimes, mass_bin_edges,
         
         # plot and save the SFH limits in each mass bin
         outfile = 'output/SFH_limits/SFMS_SFH_limits_massBin_{}.png'.format(i)
-        plt.plot_simple_multi([lookbacktimes, lookbacktimes], [lo, hi],
+        plt.plot_simple_multi([times, times], [lo, hi],
                               ['lo, hi', ''], ['grey', 'grey'], ['', ''],
                               ['-', '-'], [1, 1],
                               xlabel=r'$t_{\rm lookback}$ (Gyr)',
