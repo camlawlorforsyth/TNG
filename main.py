@@ -49,6 +49,7 @@ def main(simName='TNG50-1', snapNum=99) :
     # get SFHs from cutouts for the selected subhalos
     # creates simName_snapNum_sample_SFHs.hdf5
     sfhs.download_all_cutouts(simName, snapNum)
+    sfhs.download_all_mpbs(simName, snapNum)
     sfhs.determine_all_histories(simName, snapNum)
     
     # determine the SFMS at z = 0 and use the SFMS to set the SFH limits to

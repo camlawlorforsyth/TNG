@@ -1,40 +1,11 @@
 
-from os.path import exists
 import numpy as np
 
 from astropy.cosmology import Planck15 as cosmo
 from astropy.table import Table
 import h5py
 
-from core import gcPath, get, mpbPath
 import plotting as plt
-
-def download_all_mpbs(simName='TNG50-1', snapNum=99, redshift=0.0) :
-    
-    mpbDir = mpbPath(simName, snapNum)
-    groupsDir = gcPath(simName, snapNum)
-    
-    # open the table of subhalos in the sample that we want SFHs for
-    subhalos = Table.read(
-        groupsDir + 'subhalos_catalog_{}_{}_sample.fits'.format(simName, snapNum))
-    
-    subIDs = subhalos['SubhaloID']
-    badsubIDs = [64192] # IDs that aren't available - not on server
-    
-    for subID in [subID for subID in subIDs if subID not in badsubIDs] :
-        filename = mpbDir + 'sublink_mpb_{}.hdf5'.format(subID)
-        subID_URL = 'http://www.tng-project.org/api/{}/snapshots/z={}/subhalos/{}'.format(
-            simName, redshift, subID)
-        
-        # check if the main progenitor branch file exists
-        if not exists(filename) :
-            # retrieve information about the galaxy at the redshift of interest
-            sub = get(subID_URL)
-            
-            # save the main progenitor branch file into the output directory
-            get(sub['trees']['sublink_mpb'], directory=mpbDir)
-    
-    return
 
 def history_from_mpb(mpbfilename) :
     

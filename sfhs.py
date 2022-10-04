@@ -115,6 +115,32 @@ def download_all_cutouts(simName, snapNum) :
     
     return
 
+def download_all_mpbs(simName, snapNum) :
+    
+    mpbDir = mpbPath(simName, snapNum)
+    outDir = bsPath(simName)
+    
+    # open the table of subhalos in the sample that we want SFHs for
+    subhalos = Table.read(outDir + '/{}_{}_sample.fits'.format(simName, snapNum))
+    
+    subIDs = subhalos['SubhaloID']
+    badsubIDs = [64192] # IDs that aren't available - not on server
+    
+    for subID in [subID for subID in subIDs if subID not in badsubIDs] :
+        outfile = mpbDir + 'sublink_mpb_{}.hdf5'.format(subID)
+        url = 'http://www.tng-project.org/api/{}/snapshots/{}/subhalos/{}'.format(
+            simName, snapNum, subID)
+        
+        # check if the main progenitor branch file exists
+        if not exists(outfile) :
+            # retrieve information about the galaxy at the redshift of interest
+            sub = get(url)
+            
+            # save the main progenitor branch file into the output directory
+            get(sub['trees']['sublink_mpb'], directory=mpbDir)
+    
+    return
+
 def history_from_cutout(cutout_file, mpb_file, edges) :
     
     # cosmo.age(redshift) is slow for very large arrays, so we'll work in units
