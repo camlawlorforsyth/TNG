@@ -53,7 +53,7 @@ def add_primary_flags(simName, snapNum) :
     
     return
 
-def compare_satellite_times(flag, indices, lookbacktimes, max_age) :
+def compare_satellite_times(flag, indices, times, max_age) :
     
     consistency_measures = []
     for index in indices :
@@ -62,9 +62,9 @@ def compare_satellite_times(flag, indices, lookbacktimes, max_age) :
         if index == 0 :
             before = 0.0
         else :
-            before = lookbacktimes[index]*np.std(flag[:index+1])
+            before = times[index]*np.std(flag[:index+1])
         
-        after = (max_age - lookbacktimes[index+1])*np.std(flag[index+1:])
+        after = (max_age - times[index+1])*np.std(flag[index+1:])
         
         consistency_measures.append(before + after)
     
@@ -183,7 +183,7 @@ def plot_primary_flags_in_massBin(simName, snapNum, mass_bin_edges) :
     
     with h5py.File(outfile, 'r') as hf :
         primary_flags = hf['primary_flag'][:]
-        lookbacktimes = hf['lookbacktimes'][:]
+        times = hf['times'][:]
         masses = hf['SubhaloMassStars'][:]
     
     # iterate over all the mass bins
@@ -198,9 +198,8 @@ def plot_primary_flags_in_massBin(simName, snapNum, mass_bin_edges) :
         
         # plot and save the primary flags in each mass bin
         outfile = 'output/primary_flags_in_massBin/massBin_{}.png'.format(i)
-        plt.plot_simple_many(lookbacktimes, flags,
-                             xlabel=r'$t_{\rm lookback}$ (Gyr)',
-                             ylabel='Primary Flag',
+        plt.plot_simple_many(times, flags,
+                             xlabel=r'$t$ (Gyr)', ylabel='Primary Flag',
                              xmin=-0.1, xmax=13.8, save=True, outfile=outfile)
     
     return

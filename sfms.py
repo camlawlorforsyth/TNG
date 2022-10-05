@@ -55,7 +55,7 @@ def check_sSFR(times, masses, SFHs, mass_bin_edges) :
         for i in range(len(subsample_SFHs)) :
             sSFRs[i] = np.log10(subsample_SFHs[i, :]) - subsample_masses[i]
         
-        # create an array of those lookback times, and make a 1D array for the sSFRs
+        # create an array of those times, and make a 1D array for the sSFRs
         xs = np.array(list(times)*len(sSFRs))
         ys = sSFRs.flatten()
         
