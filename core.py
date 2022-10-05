@@ -27,7 +27,7 @@ def cutoutPath(simName, snapNum) :
 def gcPath(simName, snapNum) :
     return bsPath(simName) + '/groups_{:3.0f}/'.format(snapNum).replace(' ', '0')
 
-def get(path, directory=None, params=None) :
+def get(path, directory=None, params=None, filename=None) :
     # https://www.tng-project.org/data/docs/api/
     
     # make HTTP GET request to path
@@ -41,7 +41,9 @@ def get(path, directory=None, params=None) :
         return rr.json() # parse json responses automatically
     
     if 'content-disposition' in rr.headers :
-        filename = rr.headers['content-disposition'].split('filename=')[1]
+        if not filename :
+            filename = rr.headers['content-disposition'].split('filename=')[1]
+        
         with open(directory + filename, 'wb') as ff :
             ff.write(rr.content)
         return filename # return the filename string
@@ -50,6 +52,9 @@ def get(path, directory=None, params=None) :
 
 def mpbPath(simName, snapNum) :
     return bsPath(simName) + '/mpbs_{:3.0f}/'.format(snapNum).replace(' ', '0')
+
+def mpbCutoutPath(simName, snapNum) :
+    return bsPath(simName) + '/mpb_cutouts_{:3.0f}/'.format(snapNum).replace(' ', '0')
 
 def offsetPath(simName) :
     return '{}/postprocessing/offsets'.format(simName)
