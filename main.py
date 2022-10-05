@@ -1,6 +1,7 @@
 
 import os
 
+import analysis
 import catalogs
 import core
 import quenched
@@ -47,27 +48,31 @@ def main(simName='TNG50-1', snapNum=99) :
     sample.build_final_sample(simName, snapNum)
     
     # get SFHs from cutouts for the selected subhalos
-    # creates simName_snapNum_sample_SFHs.hdf5
+    # creates simName_snapNum_sample_SFHs(t).hdf5
     sfhs.download_all_cutouts(simName, snapNum)
     sfhs.download_all_mpbs(simName, snapNum)
     sfhs.determine_all_histories(simName, snapNum)
     
     # determine the SFMS at z = 0 and use the SFMS to set the SFH limits to
     # subsequently determine the quenched population
-    # creates simName_snapNum_SFMS_SFH_limits.pkl
+    # creates simName_snapNum_SFMS_SFH_limits(t).pkl
     sfms.check_SFMS_and_limits(simName, snapNum, mass_bin_edges, window_length,
                                polyorder)
     
     # determine which systems are quenched by our definition
-    # appends to simName_snapNum_sample_SFHs.hdf5
-    # creates simName_snapNum_quenched_SFHs.hdf5
+    # appends to simName_snapNum_sample_SFHs(t).hdf5
+    # creates simName_snapNum_quenched_SFHs(t).hdf5
     quenched.determine_quenched_systems(simName, snapNum, mass_bin_edges,
                                         window_length, polyorder)
     quenched.reduce_SFH_to_quenched_systems(simName, snapNum)
     
     # determine the 'primary_flag' as a function of time for selected subhalos
-    # appends to simName_snapNum_quenched_SFHs.hdf5
+    # appends to simName_snapNum_quenched_SFHs(t).hdf5
     satellite_time.add_primary_flags(simName, snapNum)
     satellite_time.determine_satellite_time(simName, snapNum)
+    
+    # compute zeta = RMS/HalfmassRadius, and other quantities
+    analysis.determine_sf_rms_function(simName, snapNum, window_length,
+                                       polyorder)
     
     return
