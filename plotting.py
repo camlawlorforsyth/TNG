@@ -226,7 +226,7 @@ def plot_simple_multi(xs, ys, labels, colors, markers, styles, alphas,
     return
 
 def plot_simple_multi_with_times(xs, ys, labels, colors, markers, styles,
-                                 alphas, tsat, tonset, tquench,
+                                 alphas, tsat, tonset, ttermination,
                                  xlabel=None, ylabel=None, title=None,
                                  xmin=None, xmax=None, ymin=None, ymax=None,
                                  figsizewidth=9.5, figsizeheight=7, scale='log',
@@ -245,12 +245,17 @@ def plot_simple_multi_with_times(xs, ys, labels, colors, markers, styles,
     if (ymin == None) and (ymax == None) :
         xmin, xmax, ymin, ymax = plt.axis()
     cmap = mcol.LinearSegmentedColormap.from_list('BlRd',['b','r'])
-    ax.imshow([[0.,1.], [0.,1.]], extent=(tonset, tquench, ymin, ymax),
+    ax.imshow([[0.,1.], [0.,1.]], extent=(tonset, ttermination, ymin, ymax),
                cmap=cmap, interpolation='bicubic', alpha=0.15, aspect='auto')
     
     ax.axvline(tsat, color='k', ls='--', label=r'$t_{\rm sat}$')
     ax.axvline(tonset, color='b', ls=':', label=r'$t_{\rm onset}$', alpha=0.15)
-    ax.axvline(tquench, color='r', ls=':', label=r'$t_{\rm quench}$', alpha=0.15)
+    ax.axvline(ttermination, color='r', ls=':', label=r'$t_{\rm termination}$',
+               alpha=0.15)
+    
+    delta_t_label = (r'$\Delta t_{\rm quench} = $' +
+                     '{:.1f} Gyr'.format(ttermination-tonset))
+    ax.plot(xmin-1, ymin-1, '-', color='whitesmoke', label=delta_t_label)
     
     ax.set_xscale(scale)
     ax.set_yscale(scale)
