@@ -1,12 +1,15 @@
 
 from os.path import exists
+import pickle
 import numpy as np
 
 from astropy.cosmology import Planck15 as cosmo
 import h5py
+from scipy.signal import savgol_filter
 
 from core import add_dataset, bsPath, get
 import plotting as plt
+from quenched import get_SFH_limits
 
 def add_primary_flags(simName, snapNum) :
     
@@ -93,7 +96,7 @@ def determine_satellite_time(simName, snapNum, plot=False, save=False) :
     
     # define the output directory and the output file
     outDir = bsPath(simName)
-    outfile = outDir + '/{}_{}_quenched_SFHs(t).hdf5'.format(simName, snapNum)    
+    outfile = outDir + '/{}_{}_quenched_SFHs(t).hdf5'.format(simName, snapNum)
     
     # get the relevant information to determine the satellite transition time
     # for the quenched sample
@@ -198,11 +201,61 @@ def plot_primary_flags_in_massBin(simName, snapNum, mass_bin_edges) :
     
     return
 
+def plot_quenched_systems(simName, snapNum, mass_bin_edges, window_length,
+                          polyorder) :
+    
+    # define the input directory and the input file for the SFHs
+    inDir = bsPath(simName)
+    infile = inDir + '/{}_{}_quenched_SFHs(t).hdf5'.format(simName, snapNum)
+    
+    # open the dictionary containing the limits for the SFMS SFHs
+    limits_file = inDir + '/{}_{}_SFMS_SFH_limits(t).pkl'.format(simName, snapNum)
+    with open(limits_file, 'rb') as file :
+        limits = pickle.load(file)
+    
+    # retrieve the relevant information about the quenched systems
+    with h5py.File(infile, 'r') as hf :
+        subIDs = hf['SubhaloID'][:]
+        masses = hf['SubhaloMassStars'][:]
+        SFHs = hf['SFH'][:]
+        times = hf['times'][:]
+        satellite_times = hf['satellite_times'][:]
+        onset_times = hf['onset_times'][:]
+        termination_times = hf['termination_times'][:]
+    
+    # loop through the galaxies in the quenched sample
+    for subID, mass, SFH, tsat, tonset, tterm in zip(subIDs, masses, SFHs,
+        satellite_times, onset_times, termination_times) :
+        
+        # smooth the SFH of the specific galaxy
+        smoothed = savgol_filter(SFH, window_length, polyorder)
+        smoothed[smoothed < 0] = 0
+        
+        # get the corresponding lower and upper two sigma limits for that mass
+        lo_SFH, hi_SFH = get_SFH_limits(limits, np.array(mass_bin_edges), mass)
+        
+        # now plot the curves
+        outfile = 'output/quenched_SFHs(t)/quenched_SFH_subID_{}.png'.format(subID)
+        plt.plot_simple_multi_with_times([times, times, times, times],
+                                         [SFH, smoothed, lo_SFH, hi_SFH],
+                                         ['data', 'smoothed', 'lo, hi', ''],
+                                         ['grey', 'k', 'lightgrey', 'lightgrey'],
+                                         ['', '', '', ''],
+                                         ['--', '-', '-.', '-.'],
+                                         [0.5, 1, 1, 1],
+                                         tsat, tonset, tterm,
+                                         xlabel=r'$t$ (Gyr)',
+                                         ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
+                                         xmin=-0.1, xmax=13.8, scale='linear',
+                                         save=True, outfile=outfile, loc=0)
+    
+    return
+
 def plot_satellite_times(simName, snapNum) :
     
     # define the output directory and the output file
     outDir = bsPath(simName)
-    outfile = outDir + '/{}_{}_quenched_SFHs(t).hdf5'.format(simName, snapNum)    
+    outfile = outDir + '/{}_{}_quenched_SFHs(t).hdf5'.format(simName, snapNum)
     
     # get the masses, satellite and termination times for the quenched sample
     with h5py.File(outfile, 'r') as hf :

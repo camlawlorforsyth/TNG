@@ -113,41 +113,6 @@ def get_quenched_systems_info(simName, snapNum) :
     return (subIDs, masses, R_es, SFRs, SFHs, times, onset_times,
             termination_times, limits)
 
-def plot_quenched_systems(simName, snapNum, mass_bin_edges, window_length,
-                          polyorder) : 
-    
-    # retrieve the relevant information about the quenched systems
-    (subIDs, masses, _, _, SFHs, times, onset_times,
-     termination_times, limits) = get_quenched_systems_info(simName, snapNum)
-    
-    # loop through the galaxies in the quenched sample
-    for (subID, mass, SFH, tonset,
-         tterm) in zip(subIDs, masses, SFHs, onset_times, termination_times) :
-        
-        # smooth the SFH of the specific galaxy
-        smoothed = savgol_filter(SFH, window_length, polyorder)
-        smoothed[smoothed < 0] = 0
-        
-        # get the corresponding lower and upper two sigma limits for that mass
-        lo_SFH, hi_SFH = get_SFH_limits(limits, np.array(mass_bin_edges), mass)
-        
-        # now plot the curves
-        outfile = 'output/quenched_SFHs(t)/quenched_SFH_subID_{}.png'.format(subID)
-        plt.plot_simple_multi_with_times([times, times, times, times],
-                                         [SFH, smoothed, lo_SFH, hi_SFH],
-                                         ['data', 'smoothed', 'lo, hi', ''],
-                                         ['grey', 'k', 'lightgrey', 'lightgrey'],
-                                         ['', '', '', ''],
-                                         ['--', '-', '-.', '-.'],
-                                         [0.5, 1, 1, 1],
-                                         np.nan, tonset, tterm,
-                                         xlabel=r'$t$ (Gyr)',
-                                         ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
-                                         xmin=-0.1, xmax=13.8, scale='linear',
-                                         save=True, outfile=outfile, loc=1)
-    
-    return
-
 def plot_quenched_systems_in_massBin(simName, snapNum, mass_bin_edges,
                                      window_length, polyorder) :
     
