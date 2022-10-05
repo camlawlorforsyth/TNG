@@ -3,27 +3,34 @@ from os.path import exists
 import numpy as np
 
 from astropy.cosmology import Planck15 as cosmo, z_at_value
-from astropy.table import Table
 import astropy.units as u
 import h5py
 from scipy.signal import savgol_filter
 
 from catalogs import convert_distance_units
-from core import cutoutPath, get, mpbPath
+from core import bsPath, cutoutPath, get, mpbPath
 import plotting as plt
-
-import warnings
-warnings.filterwarnings('ignore')
 
 def get_mpb_halfmassradii(simName, snapNum, subID) :
     
-    infile = mpbPath(simName, snapNum) + 'sublink_mpb_{}.hdf5'.format(subID)
-    with h5py.File(infile, 'r') as hf :
+    # define the mpb directory and file
+    mpbDir = mpbPath(simName, snapNum)
+    mpbfile = mpbDir + 'sublink_mpb_{}.hdf5'.format(subID)
+    
+    # get the mpb subIDs, stellar halfmassradii, and galaxy centers
+    with h5py.File(mpbfile, 'r') as hf :
         mpb_subIDs = hf['SubfindID'][:]
         halfmassradii = hf['SubhaloHalfmassRadType'][:, 4]
         centers = hf['SubhaloPos'][:]
     
-    return mpb_subIDs, convert_distance_units(halfmassradii), centers
+    # given that the mpb files are arranged such that the most recent redshift
+    # (z = 0) is at the beginning of arrays, we'll flip the arrays to conform
+    # to an increasing-time convention
+    mpb_subIDs = np.flip(mpb_subIDs)
+    radii = np.flip(convert_distance_units(halfmassradii))
+    centers = np.flip(centers, axis=0)
+    
+    return mpb_subIDs, radii, centers
 
 def download_mpb_cutouts(simName, snapNum, subID) :
     
@@ -53,12 +60,14 @@ def download_mpb_cutouts(simName, snapNum, subID) :
 
 def compute_sf_rms(simName, snapNum, subID, center, time, delta_t=100*u.Myr) :
     
-    # cosmo.age(redshift) is slow for very large arrays, so we'll work in units
-    # of scalefactor and convert delta_t
-    t_minus_delta_t = z_at_value(cosmo.age, time - delta_t, zmax=np.inf) # in units of redshift
-    limit = 1/(1 + t_minus_delta_t)
+    # define the cutout directory and file
+    cutoutDir = cutoutPath(simName, snapNum)
+    cutout_file = cutoutDir + 'cutout_{}.hdf5'.format(subID)
     
-    cutout_file = cutoutPath(simName, snapNum) + 'cutout_{}.hdf5'.format(subID)
+    # cosmo.age(redshift) is slow for very large arrays, so we'll work in units
+    # of scalefactor and convert delta_t. t_minus_delta_t is in units of redshift
+    t_minus_delta_t = z_at_value(cosmo.age, time*u.Gyr - delta_t, zmax=np.inf)
+    limit = 1/(1 + t_minus_delta_t) # in units of scalefactor
     
     try :
         with h5py.File(cutout_file) as hf :
@@ -77,57 +86,57 @@ def compute_sf_rms(simName, snapNum, subID, center, time, delta_t=100*u.Myr) :
             rms = 0.0
         else :
             rms = np.sqrt(np.mean(np.square(rs)))
-        
         return rms
     
     except KeyError :
         return 0.0
 
-def determine_sf_rms_function(simName, snapNum, subID, plot=False) :
+def determine_sf_rms_function(simName, snapNum, window_length, polyorder,
+                              plot=False) :
     
-    window_length, polyorder = 15, 3
+    # define the output directory and the output file
+    outDir = bsPath(simName)
+    outfile = outDir + '/{}_{}_quenched_SFHs(t).hdf5'.format(simName, snapNum)
     
-    # table = Table.read('output/tquench_vs_tsat.fits')
-    # loc = np.where(table['subID'] == subID)[0][0]
-    # tquench, tsat = table['t_quench'][loc], table['t_sat'][loc]
+    # get the masses, satellite and termination times for the quenched sample
+    with h5py.File(outfile, 'r') as hf :
+        subIDs = hf['SubhaloID'][:]
+        times = hf['times'][:]
+        tsats = hf['satellite_times'][:]
+        tonsets = hf['onset_times'][:]
+        tterms = hf['termination_times'][:]
     
-    table = Table.read('output/snapshot_redshifts.fits')
-    redshifts = table['Redshift'].value
-    ts = cosmo.age(redshifts)
-    
-    # given that the MPB files are arranged such that the most recent redshift
-    # (z = 0) is at the beginning of arrays, we'll work in that convention
-    # and then flip the arrays at the end when plotting
-    mpb_subIDs, radii, centers = get_mpb_halfmassradii(simName, snapNum, subID)
-    
-    radii[radii == 0.0] = np.inf # ensure that the quotient will be real
-    
-    rms = []
-    for time, subID, center in zip(np.flip(ts), mpb_subIDs, centers) :
-        rms.append(compute_sf_rms(simName, snapNum, subID, center, time))
-    
-    # now compute the quantity zeta, which is the quotient of the RMS of the
-    # radial distances of the star forming particles to the stellar half mass radii
-    zeta = np.flip(rms)/np.flip(radii)
-    
-    smoothed = savgol_filter(zeta, window_length, polyorder)
-    smoothed[smoothed < 0] = 0
-    
-    tsat, tonset, tquench = 5.4266043438955816, 5.4266043438955816, 7.127169581183778
-    
-    if plot :
-        # now plot the results, but limit the time axis to valid snapshots
+    # loop over all the galaxies in the quenched sample
+    for subID, tsat, tonset, tterm in zip(subIDs, tsats, tonsets, tterms) :
+        # get the mpb subIDs, stellar halfmassradii, and galaxy centers
+        mpb_subIDs, radii, centers = get_mpb_halfmassradii(simName, snapNum, subID)
         
-        ts = ts[len(ts)-len(zeta):]
+        # ensure that the quotient will be real
+        radii[radii == 0.0] = np.inf
         
-        plt.plot_simple_multi_with_times([ts, ts], [zeta, smoothed],
-            ['data', 'smoothed'], ['grey', 'k'], ['', ''], ['--', '-'], [0.75, 1],
-            tsat, tonset, tquench, xlabel=r'$t$ (Gyr)',
-            ylabel=r'$\zeta =$ RMS$_{\rm SF}/$Stellar Half Mass Radius$_{\rm SF}$',
-            xmin=-0.1, xmax=13.8, scale='linear')
+        # now compute the stellar rms values at each snapshot/time
+        rmses = []
+        for time, subID, center in zip(times, mpb_subIDs, centers) :
+            rms = compute_sf_rms(simName, snapNum, subID, center, time)
+            rmses.append(rms)
+        rmses = np.array(rmses)
         
-        # plt.plot_simple_with_vertical_lines(
-        #     ts[len(ts)-len(zeta):], zeta, tsat, tonset, tquench, xlabel=r'$t$ (Gyr)',
-        #     ylabel=r'$\zeta =$ RMS$_{\rm SF}/$Half Mass Radius$_{\rm SF}$')
+        # now compute the quantity zeta, which is the quotient of the RMS of the
+        # radial distances of the star forming particles to the stellar half mass radii
+        zeta = rmses/radii
+        
+        # smooth the function for plotting purposes
+        smoothed = savgol_filter(zeta, window_length, polyorder)
+        smoothed[smoothed < 0] = 0
+        
+        if plot :
+            # now plot the results, but limit the time axis to valid snapshots
+            ts = times[len(times)-len(zeta):]
+            
+            ylabel=r'$\zeta =$ RMS$_{\rm SF}/$Stellar Half Mass Radius$_{\rm SF}$'
+            plt.plot_simple_multi_with_times([ts, ts], [zeta, smoothed],
+                ['data', 'smoothed'], ['grey', 'k'], ['', ''], ['--', '-'], [0.5, 1],
+                tsat, tonset, tterm, xlabel=r'$t$ (Gyr)', ylabel=ylabel,
+                xmin=-0.1, xmax=13.8, scale='linear')
     
     return
