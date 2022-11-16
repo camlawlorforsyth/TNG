@@ -7,9 +7,8 @@ from astropy.cosmology import Planck15 as cosmo
 import h5py
 from scipy.signal import savgol_filter
 
-from core import add_dataset, bsPath, get
+from core import add_dataset, bsPath, get, get_SFH_limits
 import plotting as plt
-from quenched import get_SFH_limits
 
 def add_primary_flags(simName, snapNum) :
     
@@ -229,7 +228,7 @@ def plot_quenched_systems(simName, snapNum, mass_bin_edges, window_length,
         
         # smooth the SFH of the specific galaxy
         smoothed = savgol_filter(SFH, window_length, polyorder)
-        smoothed[smoothed < 0] = 0
+        smoothed[smoothed < 0] = 0 # the SFR cannot be negative
         
         # get the corresponding lower and upper two sigma limits for that mass
         lo_SFH, hi_SFH = get_SFH_limits(limits, np.array(mass_bin_edges), mass)
@@ -248,6 +247,18 @@ def plot_quenched_systems(simName, snapNum, mass_bin_edges, window_length,
                                          ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
                                          xmin=-0.1, xmax=13.8, scale='linear',
                                          save=True, outfile=outfile, loc=0)
+        
+        # now plot the curves without the upper and lower limits
+        outfile = 'output/quenched_SFHs_without_lohi(t)/quenched_SFH_subID_{}.png'.format(subID)
+        plt.plot_simple_multi_with_times([times, times], [SFH, smoothed],
+                                         ['data', 'smoothed'], ['grey', 'k'],
+                                         ['', ''], ['--', '-'], [0.5, 1],
+                                         tsat, tonset, tterm,
+                                         xlabel=r'$t$ (Gyr)',
+                                         ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
+                                         xmin=0, xmax=14, scale='linear',
+                                         save=True, outfile=outfile, loc=0)
+        
     
     return
 

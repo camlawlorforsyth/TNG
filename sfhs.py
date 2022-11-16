@@ -120,7 +120,9 @@ def download_all_mpbs(simName, snapNum) :
     # open the table of subhalos in the sample that we want SFHs for
     subhalos = Table.read(outDir + '/{}_{}_sample.fits'.format(simName, snapNum))
         
-    for subID in subhalos['SubhaloID'] :
+    for subID in [96806, 14, 41, 63878, 167398, 184946, 220605, 324126,
+                  545003, 547545, 548151, 556699, 564498, 592021, 604066,
+                  606223, 607654, 623367] : #subhalos['SubhaloID'] :
         outfile = mpbDir + 'sublink_mpb_{}.hdf5'.format(subID)
         url = 'http://www.tng-project.org/api/{}/snapshots/{}/subhalos/{}'.format(
             simName, snapNum, subID)

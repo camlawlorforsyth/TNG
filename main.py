@@ -1,14 +1,19 @@
 
 import os
 
-import analysis
+# import age_gradients
 import catalogs
+# import concatenate
 import core
+import cutouts
+import psi
 import quenched
 import sample
 import satellite_time
 import sfhs
 import sfms
+import xi
+import zeta
 
 def premain(simName, snapNum) :
     
@@ -22,6 +27,12 @@ def premain(simName, snapNum) :
     return
 
 def main(simName='TNG50-1', snapNum=99) :
+    
+    # get the redshifts for each snapshot
+    core.snapshot_redshifts(simName)
+    
+    # create a look-up table for converting scalefactors to cosmological ages
+    core.save_lookup_table()
     
     # define the edges for each mass bin
     if (simName == 'TNG50-1') and (snapNum == 99) :
@@ -71,8 +82,19 @@ def main(simName='TNG50-1', snapNum=99) :
     satellite_time.add_primary_flags(simName, snapNum)
     satellite_time.determine_satellite_time(simName, snapNum)
     
-    # compute zeta = RMS/HalfmassRadius, and other quantities
-    analysis.determine_sf_rms_function(simName, snapNum, window_length,
-                                       polyorder)
+    # compute various quantities of interest, after saving required MPB cutouts
+    # for star forming quantities through time
+    cutouts.download_mpb_cutouts(simName, snapNum)
+    zeta.determine_zeta(simName, snapNum)
+    xi.determine_xi(simName, snapNum)
+    psi.determine_psi(simName, snapNum)
+    
+    # save plots together - this can be deleted later
+    # concatenate.concatenate_diagnostics(subIDs, masses)
+    
+    # revisit the age gradients after first investigating properties
+    # of star formation in the quenched sample
+    # age_gradients.determine_age_gradients(simName, snapNum, window_length,
+    #                                       polyorder)
     
     return

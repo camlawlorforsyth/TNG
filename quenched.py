@@ -6,7 +6,7 @@ import numpy as np
 import h5py
 from scipy.signal import find_peaks, savgol_filter
 
-from core import add_dataset, bsPath
+from core import add_dataset, bsPath, get_SFH_limits
 import plotting as plt
 
 def determine_quenched_systems(simName, snapNum, mass_bin_edges,
@@ -79,14 +79,6 @@ def determine_quenched_systems(simName, snapNum, mass_bin_edges,
                 hf['termination_times'][i] = times[termination_index]
     
     return
-
-def get_SFH_limits(limits_dic, edges, mass) :
-    
-    # find the index of the corresponding mass bin
-    idx = np.where((mass >= edges[:-1]) & (mass <= edges[1:]))[0][0]
-    subdic = limits_dic['mass_bin_{}'.format(idx)]
-    
-    return subdic['lo_SFH'], subdic['hi_SFH'] # return those limits
 
 def get_quenched_systems_info(simName, snapNum) :
     

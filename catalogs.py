@@ -1,22 +1,11 @@
 
 import numpy as np
 
-from astropy.cosmology import Planck15 as cosmo
 from astropy.table import Table
 import illustris_python as il
 
-from core import bsPath, gcPath
-
-solar_Z = 0.0127 # Wiersma+ 2009, MNRAS, 399, 574; used by TNG documentation
-
-def convert_distance_units(distances) :
-    return distances/cosmo.h
-
-def convert_mass_units(masses) :
-    return np.log10(masses*1e10/cosmo.h)
-
-def convert_metallicity_units(metallicities) :
-    return np.log10(metallicities/solar_Z)
+from core import (bsPath, convert_distance_units, convert_mass_units,
+                  convert_metallicity_units, gcPath)
 
 def download_catalogs(simName, snapNum) :
     # https://www.tng-project.org/data/docs/scripts/

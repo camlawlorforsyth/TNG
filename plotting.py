@@ -131,6 +131,42 @@ def plot_scatter(xs, ys, color, label, marker, cbar_label='',
     
     return
 
+def plot_scatter_3d(xs, ys, zs, colors, markers, scale='linear',
+                    xlabel=None, ylabel=None, zlabel=None, xmin=None, xmax=None,
+                    ymin=None, ymax=None, zmin=None, zmax=None,
+                    figsizewidth=9.5, figsizeheight=7, save=False, outfile=None) :
+    
+    global currentFig
+    fig = plt.figure(currentFig, figsize=(figsizewidth, figsizeheight))
+    currentFig += 1
+    plt.clf()
+    ax = fig.add_subplot(111, projection='3d')
+        
+    for i in range(len(xs)) :
+        ax.scatter(xs[i], ys[i], zs[i], c=colors[i], marker=markers[i])
+    
+    ax.set_xscale(scale)
+    ax.set_yscale(scale)
+    ax.set_zscale(scale)
+    
+    ax.set_xlabel(xlabel, fontsize=15)
+    ax.set_ylabel(ylabel, fontsize=15)
+    ax.set_zlabel(zlabel, fontsize=15)
+    
+    ax.set_xlim(xmin, xmax)
+    ax.set_ylim(ymin, ymax)
+    ax.set_zlim(zmin, zmax)
+    
+    plt.tight_layout()
+    
+    if save :
+        plt.savefig(outfile, bbox_inches='tight')
+        plt.close()
+    else :
+        plt.show()
+    
+    return
+
 def plot_simple_dumb(xs, ys, label='',
                      xlabel=None, ylabel=None, title=None,
                      xmin=None, xmax=None, ymin=None, ymax=None,
@@ -242,8 +278,10 @@ def plot_simple_multi_with_times(xs, ys, labels, colors, markers, styles,
         ax.plot(xs[i], ys[i], marker=markers[i], linestyle=styles[i],
                 color=colors[i], label=labels[i], alpha=alphas[i])
     
-    if (ymin == None) and (ymax == None) :
-        xmin, xmax, ymin, ymax = plt.axis()
+    if (ymin == None) :
+        _, _, ymin, _ = plt.axis()
+    if (ymax == None) :
+        _, _, _, ymax = plt.axis()
     cmap = mcol.LinearSegmentedColormap.from_list('BlRd',['b','r'])
     ax.imshow([[0.,1.], [0.,1.]], extent=(tonset, ttermination, ymin, ymax),
                cmap=cmap, interpolation='bicubic', alpha=0.15, aspect='auto')
