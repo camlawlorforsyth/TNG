@@ -167,6 +167,49 @@ def plot_scatter_3d(xs, ys, zs, colors, markers, scale='linear',
     
     return
 
+def plot_scatter_multi(dx, dy, dz, sf_dx, sf_dy, sf_dz, xlabel=None, ylabel=None,
+                       zlabel=None, figsizewidth=18, figsizeheight=6, save=False,
+                       outfile=None) :
+    
+    global currentFig
+    fig = plt.figure(currentFig, figsize=(figsizewidth, figsizeheight))
+    currentFig += 1
+    plt.clf()
+    ax1 = fig.add_subplot(131)
+    ax2 = fig.add_subplot(132)
+    ax3 = fig.add_subplot(133)
+    
+    ax1.scatter(dx, dy, color='r', alpha=0.05)
+    ax1.scatter(sf_dx, sf_dy, color='b', alpha=0.1)
+    ax1.set_xlabel(xlabel, fontsize=15)
+    ax1.set_ylabel(ylabel, fontsize=15)
+    ax1.set_xlim(-30, 30)
+    ax1.set_ylim(-30, 30)
+    
+    ax2.scatter(dx, dz, color='r', alpha=0.05)
+    ax2.scatter(sf_dx, sf_dz, color='b', alpha=0.1)
+    ax2.set_xlabel(xlabel, fontsize=15)
+    ax2.set_ylabel(zlabel, fontsize=15)
+    ax2.set_xlim(-30, 30)
+    ax2.set_ylim(-30, 30)
+    
+    ax3.scatter(dy, dz, color='r', alpha=0.05)
+    ax3.scatter(sf_dy, sf_dz, color='b', alpha=0.1)
+    ax3.set_xlabel(ylabel, fontsize=15)
+    ax3.set_ylabel(zlabel, fontsize=15)
+    ax3.set_xlim(-30, 30)
+    ax3.set_ylim(-30, 30)
+    
+    plt.tight_layout()
+    
+    if save :
+        plt.savefig(outfile, bbox_inches='tight')
+        plt.close()
+    else :
+        plt.show()
+    
+    return
+
 def plot_simple_dumb(xs, ys, label='',
                      xlabel=None, ylabel=None, title=None,
                      xmin=None, xmax=None, ymin=None, ymax=None,

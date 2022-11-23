@@ -122,7 +122,7 @@ def determine_psi(simName, snapNum, delta_t=100*u.Myr, plot=False, save=False) :
                                              center)
             
             # only proceed if the ages, masses, and distances are intact
-            if (ages is not None) and (masses is not None) and (rs is not None):
+            if (ages is not None) and (masses is not None) and (rs is not None) :
                 
                 # get the SF particles
                 _, masses, rs = get_sf_particles(ages, masses, rs, time,
@@ -142,7 +142,7 @@ def determine_psi(simName, snapNum, delta_t=100*u.Myr, plot=False, save=False) :
             # determine the y-axis limits based on minima +/- 1 Gyr around
             # the quenching episode
             window = np.where((ts >= tonset - 1) & (ts <= tterm + 1))
-            lo, hi = np.min(smoothed[window]), np.max(smoothed[window])
+            lo, hi = np.nanmin(smoothed[window]) - 1, np.nanmax(smoothed[window]) + 1
             
             outfile = outDir + 'SFR_density_gradient_subID_{}.png'.format(subID)
             ylabel = r'$\nabla \left[ \log (\psi/M_{\odot}~{\rm yr}^{-1}~{\rm kpc}^{-3})/\log (r/R_{\rm e}) \right]$'

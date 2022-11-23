@@ -75,7 +75,7 @@ def determine_zeta(simName, snapNum, delta_t=100*u.Myr, plot=False, save=False) 
                                              center)
             
             # only proceed if the ages, masses, and distances are intact
-            if (ages is not None) and (masses is not None) and (rs is not None):
+            if (ages is not None) and (masses is not None) and (rs is not None) :
                 
                 # find the stellar half mass radius for all particles
                 stellar_halfmass_radius = compute_halfmass_radius(masses, rs)
@@ -103,7 +103,7 @@ def determine_zeta(simName, snapNum, delta_t=100*u.Myr, plot=False, save=False) 
             plt.plot_simple_multi_with_times([ts, ts], [zetas, smoothed],
                 ['data', 'smoothed'], ['grey', 'k'], ['', ''], ['--', '-'], [0.5, 1],
                 tsat, tonset, tterm, xlabel=r'$t$ (Gyr)', ylabel=ylabel,
-                xmin=0, xmax=14, ymin=0,
+                xmin=0, xmax=14, ymin=0, ymax=6,
                 scale='linear', save=save, outfile=outfile)
     
     return

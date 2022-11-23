@@ -80,7 +80,7 @@ def determine_xi(simName, snapNum, delta_t=100*u.Myr, plot=False, save=False) :
                                              center)
             
             # only proceed if the ages, masses, and distances are intact
-            if (ages is not None) and (masses is not None) and (rs is not None):
+            if (ages is not None) and (masses is not None) and (rs is not None) :
                 
                 # get the SF particles
                 _, masses, rs = get_sf_particles(ages, masses, rs, time,
