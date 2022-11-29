@@ -85,8 +85,8 @@ def main(simName='TNG50-1', snapNum=99) :
     # compute various quantities of interest, after saving required MPB cutouts
     # for star forming quantities through time
     cutouts.download_mpb_cutouts(simName, snapNum)
-    zeta.determine_zeta(simName, snapNum)
-    xi.determine_xi(simName, snapNum)
+    zeta.zeta_for_sample(simName, snapNum)
+    xi.xi_for_sample(simName, snapNum)
     psi.determine_psi(simName, snapNum)
     
     # save plots together - this can be deleted later

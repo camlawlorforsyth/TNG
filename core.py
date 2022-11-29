@@ -97,6 +97,32 @@ def get_mpb_radii_and_centers(simName, snapNum, subID) :
     
     return snapNums, mpb_subIDs, radii, centers
 
+def get_particle_positions(simName, snapNum, snap, subID, center) :
+    
+    # define the mpb cutouts directory and file
+    mpbcutoutDir = mpbCutoutPath(simName, snapNum)
+    cutout_file = mpbcutoutDir + 'cutout_{}_{}.hdf5'.format(snap, subID)
+    
+    try :
+        with h5py.File(cutout_file) as hf :
+            dx = hf['PartType4']['Coordinates'][:, 0] - center[0]
+            dy = hf['PartType4']['Coordinates'][:, 1] - center[1]
+            dz = hf['PartType4']['Coordinates'][:, 2] - center[2]
+            
+            # conert mass units
+            masses = hf['PartType4']['GFM_InitialMass'][:]*1e10/cosmo.h
+            
+            # formation ages are in units of scalefactor
+            formation_ages = hf['PartType4']['GFM_StellarFormationTime'][:]
+        
+        # limit particles to those that have positive formation times
+        mask = (formation_ages >= 0)
+        
+        return formation_ages[mask], masses[mask], dx[mask], dy[mask], dz[mask]
+    
+    except KeyError :
+        return None, None, None, None, None
+
 def get_particles(simName, snapNum, snap, subID, center) :
     
     # define the mpb cutouts directory and file
@@ -128,6 +154,18 @@ def get_particles(simName, snapNum, snap, subID, center) :
     
     except KeyError :
         return None, None, None
+
+def get_sf_particle_positions(ages, masses, dx, dy, dz, time, delta_t=100*u.Myr) :
+    
+    # cosmo.age(redshift) is slow for very large arrays, so we'll work in units
+    # of scalefactor and convert delta_t. t_minus_delta_t is in units of redshift
+    t_minus_delta_t = z_at_value(cosmo.age, time*u.Gyr - delta_t, zmax=np.inf)
+    limit = 1/(1 + t_minus_delta_t) # in units of scalefactor
+    
+    # limit particles to those that formed within the past delta_t time
+    mask = (ages >= limit)
+    
+    return ages[mask], masses[mask], dx[mask], dy[mask], dz[mask]
 
 def get_sf_particles(ages, masses, rs, time, delta_t=100*u.Myr) :
     
