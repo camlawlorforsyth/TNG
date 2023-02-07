@@ -7,8 +7,8 @@ import h5py
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import savgol_filter
 
-from core import (add_dataset, bsPath, get_mpb_radii_and_centers, get_particles,
-                  get_sf_particles)
+from core import (add_dataset, bsPath, determine_mass_bin_indices,
+                  get_mpb_radii_and_centers, get_particles, get_sf_particles)
 import plotting as plt
 
 def compute_halfmass_radius(masses, rs) :
@@ -110,10 +110,16 @@ def save_zeta_for_sample(simName, snapNum) :
         
         # if zeta(t) doesn't exist for the galaxy, populate the values
         if np.all(np.isnan(x_zeta[i, :])) :
+            
+            _, zeta = determine_zeta_fxn(simName, snapNum, times, subID,
+                                         delta_t=100*u.Myr)
+            start_index = len(x_zeta[i, :]) - len(zeta)
+            
             # append the determined values for zeta(t) into the outfile
             with h5py.File(outfile, 'a') as hf :
-                _, hf['zeta(t)'][i, :] = determine_zeta_fxn(simName, snapNum,
-                    times, subID, delta_t=100*u.Myr)
+                hf['zeta(t)'][i, start_index:] = zeta
+        
+        print('{} - {} done'.format(i, subID))
     
     return
 
@@ -137,14 +143,47 @@ def zeta_for_sample(simName, snapNum, delta_t=100*u.Myr, plot=False, save=False)
         tterms = hf['termination_times'][:]
     '''
     
+    # get attributes for the test data
     from core import get_test_data
-    _, times, subIDs, tsats, tonsets, tterms = get_test_data()
+    _, times, test_subIDs, tsats, tonsets, tterms = get_test_data()
+    
+    # get relevant information for the larger sample of 8260 galaxies
+    infile = bsPath(simName) + '/{}_{}_sample_SFHs(t).hdf5'.format(simName, snapNum)
+    with h5py.File(infile, 'r') as hf :
+        # sample_subIDs = hf['SubhaloID'][:]
+        sample_masses = hf['SubhaloMassStars'][:]
+    mask = (sample_masses > 10.07) & (sample_masses <= 12.75)
+    # sample_subIDs = sample_subIDs[mask]
+    sample_masses = sample_masses[mask]
+    
+    # get information about high mass galaxies and their zeta parameter
+    infile = bsPath(simName) + '/{}_{}_highMassGals_zeta(t).hdf5'.format(
+        simName, snapNum)
+    with h5py.File(infile, 'r') as hf :
+        highMass_subIDs = hf['SubhaloID'][:]
+        highMass_zetas = hf['zeta(t)'][:]
     
     # loop over all the galaxies in the quenched sample
-    for subID, tsat, tonset, tterm in zip(subIDs, tsats, tonsets, tterms) :
+    for subID, tsat, tonset, tterm in zip(test_subIDs, tsats, tonsets, tterms) :
         
-        ts, zetas = determine_zeta_fxn(simName, snapNum, times, subID,
-                                       delta_t=delta_t)
+        # ts, zetas = determine_zeta_fxn(simName, snapNum, times, subID,
+        #                                delta_t=delta_t)
+        
+        # find the corresponding index for the galaxy
+        loc = np.where(highMass_subIDs == subID)[0][0]
+        
+        # find galaxies in a similar mass range as the galaxy
+        mass = sample_masses[loc]
+        mass_bin = determine_mass_bin_indices(sample_masses, mass, halfwidth=0.05)
+        
+        # use the zeta values for those comparison galaxies to determine percentiles
+        comparison_zetas = highMass_zetas[mass_bin]
+        lo_zeta, hi_zeta = np.nanpercentile(comparison_zetas, [16, 84], axis=0)
+        lo_zeta = gaussian_filter1d(lo_zeta, 2)
+        hi_zeta = gaussian_filter1d(hi_zeta, 2)
+        
+        # get zeta for the galaxy
+        zetas = highMass_zetas[loc]
         
         if plot :
             # smooth the function for plotting purposes
@@ -152,8 +191,14 @@ def zeta_for_sample(simName, snapNum, delta_t=100*u.Myr, plot=False, save=False)
             
             outfile = outDir + 'zeta_subID_{}.png'.format(subID)
             ylabel = r'$\zeta = R_{{\rm e}_{*, {\rm SF}}}/R_{{\rm e}_{*, {\rm total}}}$'
-            plt.plot_simple_multi_with_times([ts, ts], [zetas, smoothed],
-                ['data', 'smoothed'], ['grey', 'k'], ['', ''], ['--', '-'], [0.5, 1],
+            plt.plot_simple_multi_with_times(
+                [times, times, times, times],
+                [zetas, smoothed, lo_zeta, hi_zeta],
+                ['data', 'smoothed', 'lo, hi', ''],
+                ['grey', 'k', 'lightgrey', 'lightgrey'],
+                ['', '', '', ''],
+                ['--', '-', '-.', '-.'],
+                [0.5, 1, 1, 1],
                 tsat, tonset, tterm, xlabel=r'$t$ (Gyr)', ylabel=ylabel,
                 xmin=0, xmax=14, ymin=0, ymax=6,
                 scale='linear', save=save, outfile=outfile)

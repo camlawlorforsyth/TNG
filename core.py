@@ -39,31 +39,46 @@ def convert_metallicity_units(metallicities) :
 def cutoutPath(simName, snapNum) :
     return bsPath(simName) + '/cutouts_{:3.0f}/'.format(snapNum).replace(' ', '0')
 
+def determine_mass_bin_indices(masses, mass, halfwidth=0.05, minNum=50) :
+    
+    mass_bin_mask = (masses >= mass - halfwidth) & (masses <= mass + halfwidth)
+    
+    if np.sum(mass_bin_mask) >= minNum :
+        return mass_bin_mask
+    else :
+        return(determine_mass_bin_indices(masses, mass, halfwidth + 0.005))
+
 def gcPath(simName, snapNum) :
     return bsPath(simName) + '/groups_{:3.0f}/'.format(snapNum).replace(' ', '0')
 
 def get(path, directory=None, params=None, filename=None) :
     # https://www.tng-project.org/data/docs/api/
     
-    # make HTTP GET request to path
-    headers = {'api-key':'0890bad45ac29c4fdd80a1ffc7d6d27b'}
-    rr = requests.get(path, params=params, headers=headers)
-    
-    # raise exception if response code is not HTTP SUCCESS (200)
-    rr.raise_for_status()
-    
-    if rr.headers['content-type'] == 'application/json' :
-        return rr.json() # parse json responses automatically
-    
-    if 'content-disposition' in rr.headers :
-        if not filename :
-            filename = rr.headers['content-disposition'].split('filename=')[1]
+    try :
+        # make HTTP GET request to path
+        headers = {'api-key':'0890bad45ac29c4fdd80a1ffc7d6d27b'}
+        rr = requests.get(path, params=params, headers=headers)
         
-        with open(directory + filename, 'wb') as ff :
-            ff.write(rr.content)
-        return filename # return the filename string
-    
-    return rr
+        # raise exception if response code is not HTTP SUCCESS (200)
+        # rr.raise_for_status()
+        if rr.status_code == 200 :
+        
+            if rr.headers['content-type'] == 'application/json' :
+                return rr.json() # parse json responses automatically
+            
+            if 'content-disposition' in rr.headers :
+                if not filename :
+                    filename = rr.headers['content-disposition'].split('filename=')[1]
+                
+                with open(directory + filename, 'wb') as ff :
+                    ff.write(rr.content)
+                return filename # return the filename string
+            
+            return rr
+        else :
+            print('Error: {} for file {}'.format(rr.status_code, filename))
+    except Exception as error :
+        print('Exception: {}'.format(error))
 
 def get_ages_and_scalefactors() :
     
@@ -152,7 +167,7 @@ def get_particles(simName, snapNum, snap, subID, center) :
         
         return ages, masses, rs
     
-    except KeyError :
+    except (KeyError, OSError) :
         return None, None, None
 
 def get_sf_particle_positions(ages, masses, dx, dy, dz, time, delta_t=100*u.Myr) :

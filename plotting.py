@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 import matplotlib.colors as mcol
 from matplotlib.colors import LogNorm
+from matplotlib.patches import Circle
+import seaborn as sns
 
 currentFig = 1
 
@@ -167,6 +169,81 @@ def plot_scatter_3d(xs, ys, zs, colors, markers, scale='linear',
     
     return
 
+def plot_scatter_CASTOR(dx, dy, sf_dx, sf_dy, sf_masses, Re,
+                        df=None, radii=None, legend=True, title=None,
+                        bad='white', bins=[20,20], cmap=cm.Blues,
+                        norm=LogNorm(vmin=0.001, vmax=0.7),
+                        xlabel=None, ylabel=None,
+                        xmin=None, xmax=None, ymin=None, ymax=None,
+                        figsizewidth=7, figsizeheight=7, save=False,
+                        outfile=None) :
+    
+    global currentFig
+    fig = plt.figure(currentFig, figsize=(figsizewidth, figsizeheight))
+    currentFig += 1
+    plt.clf()
+    ax = fig.add_subplot(111)
+    
+    cmap = copy.copy(cmap)
+    cmap.set_bad(bad, 1)
+    
+    if df is not None :
+        sns.kdeplot(data=df, x='dx', y='dz', color='r', weights='masses',
+                    levels=[0.1, 0.2, 0.3, 0.6, 0.9], ax=ax)
+        ax.plot([2*xmax], [2*xmax], 'r-', label='non-SF stellar particles')
+        hist, _, _, image = ax.hist2d(sf_dx, sf_dy, bins=bins, cmap=cmap,
+                                      norm=norm, alpha=0.9, weights=sf_masses)
+        
+        if legend :
+            cbar = plt.colorbar(image)
+            label = r'$\log({\rm SFR}_{\rm 100~Myr}/{\rm M}_{\odot}~{\rm yr}^{-1})$'
+            cbar.set_label(label, fontsize=20)
+        
+    else :
+        ax.scatter(dx, dy, color='r', alpha=0.05,
+                   label='non-SF stellar particles')
+        ax.scatter(sf_dx, sf_dy, color='b', alpha=0.1, label='SF particles')
+    
+    if type(radii) == list :
+        for i in range(len(radii)) :
+            if i == len(radii) - 1 :
+                label = r'[2, 4] $R_{\rm e}$'
+            else :
+                label = ''
+            circle = Circle((0, 0), radius=radii[i], facecolor='none', ls=':',
+                            edgecolor='k', linewidth=1.5, alpha=0.3, zorder=3,
+                            label=label)
+            ax.add_patch(circle)
+    else :
+        circle = Circle((0, 0), radius=Re, facecolor='none', edgecolor='k',
+                        ls='-', linewidth=2, alpha=1, zorder=3)
+        ax.add_patch(circle)
+    
+    ax.set_title(title, fontsize=20)
+    ax.set_xlabel(xlabel, fontsize=20)
+    ax.set_ylabel(ylabel, fontsize=20)
+    
+    ax.set_xlim(xmin, xmax)
+    ax.set_ylim(ymin, ymax)
+    
+    ax.tick_params(axis='both', which='major', labelsize=15)
+    # ax.tick_params(axis='both', which='minor', labelsize=8)
+    
+    if legend :
+        ax.legend(facecolor='whitesmoke', framealpha=1, fontsize=18)
+    
+    ax.axes.set_aspect('equal')
+    
+    plt.tight_layout()
+    
+    if save :
+        plt.savefig(outfile, bbox_inches='tight')
+        plt.close()
+    else :
+        plt.show()
+    
+    return
+
 def plot_scatter_multi(dx, dy, dz, sf_dx, sf_dy, sf_dz, xlabel=None, ylabel=None,
                        zlabel=None, figsizewidth=18, figsizeheight=6, save=False,
                        outfile=None) :
@@ -293,6 +370,45 @@ def plot_simple_multi(xs, ys, labels, colors, markers, styles, alphas,
     ax.set_ylim(ymin, ymax)
     # if labels[0] != '' :
     ax.legend(facecolor='whitesmoke', framealpha=1, fontsize=15, loc=loc)
+    
+    plt.tight_layout()
+    
+    if save :
+        plt.savefig(outfile, bbox_inches='tight')
+        plt.close()
+    else :
+        plt.show()
+    
+    return
+
+def plot_simple_with_band(xs, ys, lo, med, hi, xlabel=None, ylabel=None,
+                          xmin=None, xmax=None, ymin=None, ymax=None,
+                          figsizewidth=7, figsizeheight=7, scale='linear', loc=0,
+                          outfile=None, save=False, legend=True) :
+    
+    global currentFig
+    fig = plt.figure(currentFig, figsize=(figsizewidth, figsizeheight))
+    currentFig += 1
+    plt.clf()
+    ax = fig.add_subplot(111)
+    
+    ax.plot(xs, med, 'k:', label=r'SFMS$_{\rm z = 0}$ median')
+    ax.plot(xs, ys, 'k-', label=r'subID 14 at $z = 0$')
+    ax.fill_between(xs, lo, hi, color='grey', edgecolor='darkgrey',
+                    label=r'SFMS$_{\rm z = 0} \pm 1 \sigma$', alpha=0.2)
+    
+    ax.set_xscale(scale)
+    ax.set_yscale(scale)
+    
+    ax.set_xlabel(xlabel, fontsize=20)
+    ax.set_ylabel(ylabel, fontsize=20)
+    
+    ax.tick_params(axis='both', which='major', labelsize=15)
+    
+    ax.set_xlim(xmin, xmax)
+    ax.set_ylim(ymin, ymax)
+    if legend :
+        ax.legend(facecolor='whitesmoke', framealpha=1, fontsize=18, loc=loc)
     
     plt.tight_layout()
     

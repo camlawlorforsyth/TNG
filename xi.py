@@ -8,8 +8,8 @@ import h5py
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import savgol_filter
 
-from core import (add_dataset, bsPath, get_mpb_radii_and_centers, get_particles,
-                  get_sf_particles)
+from core import (add_dataset, bsPath, determine_mass_bin_indices,
+                  get_mpb_radii_and_centers, get_particles, get_sf_particles)
 import plotting as plt
 
 def compute_xi(redshift, masses, rs) :
@@ -112,10 +112,16 @@ def save_xi_for_sample(simName, snapNum) :
         
         # if xi(t) doesn't exist for the galaxy, populate the values
         if np.all(np.isnan(x_xi[i, :])) :
+            
+            _, xi = determine_xi_fxn(simName, snapNum, redshifts, times, subID,
+                                     delta_t=100*u.Myr)
+            start_index = len(x_xi[i, :]) - len(xi)
+            
             # append the determined values for xi(t) into the outfile
             with h5py.File(outfile, 'a') as hf :
-                _, hf['xi(t)'][i, :] = determine_xi_fxn(simName, snapNum,
-                    redshifts, times, subID, delta_t=100*u.Myr)
+                hf['xi(t)'][i, start_index:] = xi
+        
+        print('{} - {} done'.format(i, subID))
     
     return
 
@@ -139,14 +145,47 @@ def xi_for_sample(simName, snapNum, delta_t=100*u.Myr, plot=False, save=False) :
         tterms = hf['termination_times'][:]
     '''
     
+    # get attributes for the test data
     from core import get_test_data
     redshifts, times, subIDs, tsats, tonsets, tterms = get_test_data()
+    
+    # get relevant information for the larger sample of 8260 galaxies
+    infile = bsPath(simName) + '/{}_{}_sample_SFHs(t).hdf5'.format(simName, snapNum)
+    with h5py.File(infile, 'r') as hf :
+        # sample_subIDs = hf['SubhaloID'][:]
+        sample_masses = hf['SubhaloMassStars'][:]
+    mask = (sample_masses > 10.07) & (sample_masses <= 12.75)
+    # sample_subIDs = sample_subIDs[mask]
+    sample_masses = sample_masses[mask]
+    
+    # get information about high mass galaxies and their xi parameter
+    infile = bsPath(simName) + '/{}_{}_highMassGals_xi(t).hdf5'.format(
+        simName, snapNum)
+    with h5py.File(infile, 'r') as hf :
+        highMass_subIDs = hf['SubhaloID'][:]
+        highMass_xis = hf['xi(t)'][:]
     
     # loop over all the galaxies in the quenched sample
     for subID, tsat, tonset, tterm in zip(subIDs, tsats, tonsets, tterms) :
         
-        ts, xis = determine_xi_fxn(simName, snapNum, subID, redshifts, times,
-                                   delta_t=delta_t)
+        # ts, xis = determine_xi_fxn(simName, snapNum, subID, redshifts, times,
+        #                            delta_t=delta_t)
+        
+        # find the corresponding index for the galaxy
+        loc = np.where(highMass_subIDs == subID)[0][0]
+        
+        # find galaxies in a similar mass range as the galaxy
+        mass = sample_masses[loc]
+        mass_bin = determine_mass_bin_indices(sample_masses, mass, halfwidth=0.05)
+        
+        # use the xi values for those comparison galaxies to determine percentiles
+        comparison_xis = highMass_xis[mass_bin]
+        lo_xi, hi_xi = np.nanpercentile(comparison_xis, [16, 84], axis=0)
+        lo_xi = gaussian_filter1d(lo_xi, 2)
+        hi_xi = gaussian_filter1d(hi_xi, 2)
+        
+        # get xi for the galaxy
+        xis = highMass_xis[loc]
         
         if plot :            
             # smooth the function for plotting purposes
@@ -154,10 +193,37 @@ def xi_for_sample(simName, snapNum, delta_t=100*u.Myr, plot=False, save=False) :
             
             outfile = outDir + 'xi_subID_{}.png'.format(subID)
             ylabel = r'$\xi = {\rm SFR}_{<1~{\rm kpc}}/{\rm SFR}_{\rm total}$'
-            plt.plot_simple_multi_with_times([ts, ts], [xis, smoothed],
-                ['data', 'smoothed'], ['grey', 'k'], ['', ''], ['--', '-'], [0.5, 1],
+            plt.plot_simple_multi_with_times(
+                [times, times, times, times],
+                [xis, smoothed, lo_xi, hi_xi],
+                ['data', 'smoothed', 'lo, hi', ''],
+                ['grey', 'k', 'lightgrey', 'lightgrey'],
+                ['', '', '', ''],
+                ['--', '-', '-.', '-.'],
+                [0.5, 1, 1, 1],
                 tsat, tonset, tterm, xlabel=r'$t$ (Gyr)', ylabel=ylabel,
                 xmin=0, xmax=14, ymin=0, ymax=1,
                 scale='linear', save=save, outfile=outfile)
+    
+    return
+
+def scatter() :
+    
+    simName = 'TNG50-1'
+    snapNum = 99
+    
+    # get information about high mass galaxies and their xi parameter
+    infile = bsPath(simName) + '/{}_{}_highMassGals_xi(t).hdf5'.format(
+        simName, snapNum)
+    with h5py.File(infile, 'r') as hf :
+        highMass_subIDs = hf['SubhaloID'][:]
+        highMass_xis = hf['xi(t)'][:]
+    
+    # get information about high mass galaxies and their zeta parameter
+    infile = bsPath(simName) + '/{}_{}_highMassGals_zeta(t).hdf5'.format(
+        simName, snapNum)
+    with h5py.File(infile, 'r') as hf :
+        highMass_subIDs = hf['SubhaloID'][:]
+        highMass_zetas = hf['zeta(t)'][:]
     
     return

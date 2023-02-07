@@ -5,6 +5,7 @@ import numpy as np
 
 from astropy.cosmology import Planck15 as cosmo
 import h5py
+from scipy.ndimage import gaussian_filter1d
 from scipy.signal import savgol_filter
 
 from core import add_dataset, bsPath, get, get_SFH_limits
@@ -258,7 +259,6 @@ def plot_quenched_systems(simName, snapNum, mass_bin_edges, window_length,
                                          ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
                                          xmin=0, xmax=14, scale='linear',
                                          save=True, outfile=outfile, loc=0)
-        
     
     return
 
