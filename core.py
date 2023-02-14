@@ -1,4 +1,5 @@
 
+from os.path import exists
 import numpy as np
 
 from astropy.cosmology import Planck15 as cosmo, z_at_value
@@ -25,7 +26,7 @@ def add_dataset(h5file, data, label, dtype=None) :
     return
 
 def bsPath(simName) :
-    return '{}/output'.format(simName)
+    return '{}/'.format(simName)
 
 def convert_distance_units(distances) :
     return distances/cosmo.h
@@ -39,14 +40,14 @@ def convert_metallicity_units(metallicities) :
 def cutoutPath(simName, snapNum) :
     return bsPath(simName) + '/cutouts_{:3.0f}/'.format(snapNum).replace(' ', '0')
 
-def determine_mass_bin_indices(masses, mass, halfwidth=0.05, minNum=50) :
+def determine_mass_bin_indices(masses, mass, hw=0.1, minNum=50) :
     
-    mass_bin_mask = (masses >= mass - halfwidth) & (masses <= mass + halfwidth)
+    mass_bin_mask = (masses >= mass - hw) & (masses <= mass + hw)
     
     if np.sum(mass_bin_mask) >= minNum :
         return mass_bin_mask
     else :
-        return(determine_mass_bin_indices(masses, mass, halfwidth + 0.005))
+        return(determine_mass_bin_indices(masses, mass, hw + 0.005))
 
 def gcPath(simName, snapNum) :
     return bsPath(simName) + '/groups_{:3.0f}/'.format(snapNum).replace(' ', '0')
@@ -213,16 +214,22 @@ def offsetPath(simName) :
 
 def save_lookup_table():
     
-    scalefactor = np.linspace(0, 1, 1000001) # limited to [0, 1]
-    age = cosmo.age(1/scalefactor - 1).value
+    outfile_fits = 'TNG50-1/scalefactor_to_Gyr.fits'
+    outfile_hdf5 = 'TNG50-1/scalefactor_to_Gyr.hdf5'
     
-    # write to file
-    with h5py.File('output/scalefactor_to_Gyr.hdf5', 'w') as hf :
-        add_dataset(hf, scalefactor, 'scalefactor')
-        add_dataset(hf, age, 'age')
-    
-    # table = Table([scalefactor, age], names=('scalefactor', 'age'))
-    # table.write('output/scalefactor_to_Gyr.fits')
+    if (not exists(outfile_fits)) and (not exists(outfile_hdf5)) :
+        
+        scalefactor = np.linspace(0, 1, 1000001) # limited to [0, 1]
+        age = cosmo.age(1/scalefactor - 1).value
+        
+        # write to fits file
+        table = Table([scalefactor, age], names=('scalefactor', 'age'))
+        table.write(outfile_fits)
+        
+        # write to hdf5 file
+        with h5py.File(outfile_hdf5, 'w') as hf :
+            add_dataset(hf, scalefactor, 'scalefactor')
+            add_dataset(hf, age, 'age')
     
     return
 
@@ -231,21 +238,24 @@ def snapPath(simName, snapNum) :
 
 def snapshot_redshifts(simName) :
     
-    snaps = get('http://www.tng-project.org/api/{}/snapshots/'.format(simName))
-        
-    snapNums, redshifts = [], []
-    for snap in snaps :
-        snapNums.append(snap['number'])
-        redshifts.append(snap['redshift'])
+    outfile = 'TNG50-1/snapshot_redshifts.fits'
     
-    table = Table([snapNums, redshifts], names=('SnapNum', 'Redshift'))
-    table.write('output/snapshot_redshifts.fits')
+    if not exists(outfile) :
+        snaps = get('http://www.tng-project.org/api/{}/snapshots/'.format(simName))
+        
+        snapNums, redshifts = [], []
+        for snap in snaps :
+            snapNums.append(snap['number'])
+            redshifts.append(snap['redshift'])
+        
+        table = Table([snapNums, redshifts], names=('SnapNum', 'Redshift'))
+        table.write(outfile)
     
     return
 
 def test_lookup_table() :
     
-    with h5py.File('output/scalefactor_to_Gyr.hdf5', 'r') as hf :
+    with h5py.File('TNG50-1/scalefactor_to_Gyr.hdf5', 'r') as hf :
         scalefactor = hf['scalefactor'][:]
         age = hf['age'][:]
     

@@ -81,7 +81,8 @@ def determine_quenched_systems(simName, snapNum, mass_bin_edges,
     
     return
 
-def determine_quenched_systems_relative(simName, snapNum) :
+def determine_quenched_systems_relative(simName, snapNum, hw=0.1, minNum=50,
+                                        kernel=2) :
     
     # define the input directory and the input file for the SFHs
     inDir = bsPath(simName)
@@ -92,45 +93,45 @@ def determine_quenched_systems_relative(simName, snapNum) :
         subIDs = hf['SubhaloID'][:]
         masses = hf['SubhaloMassStars'][:]
         SFHs = hf['SFH'][:]
-        # times = hf['times'][:]
+        SFMS = hf['SFMS'][:] # star forming main sequence at z = 0
+        times = hf['times'][:]
+    
+    # add empty quenched mask, onset and termination indices and times into the
+    # HDF5 file to populate later
+    if exists(infile) :
+        with h5py.File(infile, 'a') as hf :
+            if 'quenched_mask' not in hf.keys() :
+                add_dataset(hf, np.full(len(subIDs), False), 'quenched_mask')
+            if 'onset_indices' not in hf.keys() :
+                add_dataset(hf, np.full(len(subIDs), np.nan), 'onset_indices')
+            if 'onset_times' not in hf.keys() :
+                add_dataset(hf, np.full(len(subIDs), np.nan), 'onset_times')
+            if 'termination_indices' not in hf.keys() :
+                add_dataset(hf, np.full(len(subIDs), np.nan), 'termination_indices')
+            if 'termination_times' not in hf.keys() :
+                add_dataset(hf, np.full(len(subIDs), np.nan), 'termination_times')
     
     # select the SFHs corresponding to the SFMS at z = 0, and their masses
-    SFMS_at_z0_mask = (SFHs[:, -1] > 0.001)
-    SFMS_SFHs = SFHs[SFMS_at_z0_mask]
-    SFMS_masses = masses[SFMS_at_z0_mask]
+    SFMS_SFHs = SFHs[SFMS]
+    SFMS_masses = masses[SFMS]
     
-    minimumNum = 50
-    hw = 0.10
-    
-    new_quenched_subIDs = []
-    new_quenched_mass = []
     # loop through the galaxies in the sample
     for i, (subID, mass, SFH) in enumerate(zip(subIDs, masses, SFHs)) :
         
         # smooth the SFH of the specific galaxy
-        smoothed = gaussian_filter1d(SFH, 2)
+        smoothed = gaussian_filter1d(SFH, kernel)
         smoothed[smoothed < 0] = 0
         
-        # find galaxies in a similar mass range as the galaxy
-        mass_bin = determine_mass_bin_indices(SFMS_masses, mass, halfwidth=hw,
-                                              minNum=minimumNum)
-        # !!! - with halfwidth=0.05, minNum=30,  we find 190 systems
-        # !!! - with halfwidth=0.05, minNum=50,  we find 191 systems
-        # !!! - with halfwidth=0.05, minNum=100, we find 192 systems
-        
-        # !!! - with halfwidth=0.10, minNum=30,  we find 220 systems
-        # !!! - with halfwidth=0.10, minNum=50,  we find 220 systems
-        # !!! - with halfwidth=0.10, minNum=100, we find 218 systems
-        
-        # !!! - with halfwidth=0.15, minNum=30,  we find 268 systems
-        # !!! - with halfwidth=0.15, minNum=50,  we find 268 systems
-        # !!! - with halfwidth=0.15, minNum=100, we find 268 systems
+        # find galaxies in a similar mass range as the galaxy, but that are on
+        # the SFMS at z = 0
+        mass_bin = determine_mass_bin_indices(SFMS_masses, mass, hw=hw,
+                                              minNum=minNum)
         
         # use the SFH values for those comparison galaxies to determine percentiles
         comparison_SFHs = SFMS_SFHs[mass_bin]
         lo_SFH, hi_SFH = np.nanpercentile(comparison_SFHs, [2.5, 97.5], axis=0)
-        lo_SFH = gaussian_filter1d(lo_SFH, 2)
-        hi_SFH = gaussian_filter1d(hi_SFH, 2)
+        lo_SFH = gaussian_filter1d(lo_SFH, kernel)
+        hi_SFH = gaussian_filter1d(hi_SFH, kernel)
         
         # set the indices where the limits don't have to be strictly observed,
         # essentially a small tolerance given the smoothing and low SFRs at
@@ -148,10 +149,6 @@ def determine_quenched_systems_relative(simName, snapNum) :
             np.all(hi_diff[start_lim:] <= 0) and
             np.all(lo_diff[termination_index:end_lim] <= 0)) :
             
-            new_quenched_subIDs.append(subID)
-            new_quenched_mass.append(mass)
-            
-            '''
             # find the peaks of the smoothed curve
             maxima, props = find_peaks(smoothed, height=0.4*np.max(smoothed))
             
@@ -159,20 +156,13 @@ def determine_quenched_systems_relative(simName, snapNum) :
             onset_index = maxima[-1]
             
             # if the galaxy is quenched, change the value in the mask, and
-            # update the onset and termination times
+            # update the onset and termination indices and times
             with h5py.File(infile, 'a') as hf :
                 hf['quenched_mask'][i] = True
+                hf['onset_indices'][i] = onset_index
                 hf['onset_times'][i] = times[onset_index]
+                hf['termination_indices'][i] = termination_index
                 hf['termination_times'][i] = times[termination_index]
-            '''
-    
-    from astropy.table import Table
-    t = Table()
-    t['q_subIDs'] = new_quenched_subIDs
-    t['mass'] = new_quenched_mass
-    outfile = 'relative_quenched_subIDs_minNum-{}_halfwidth-{}.fits'.format(
-        minimumNum, hw)
-    t.write(outfile)
     
     return
 
@@ -253,6 +243,7 @@ def reduce_SFH_to_quenched_systems(simName, snapNum) :
     
     # read the input file and populate the information
     with h5py.File(infile, 'r') as hf :
+        
         # the arrays that will be copied over as existing
         redshifts = hf['redshifts'][:]
         times = hf['times'][:]
@@ -265,9 +256,13 @@ def reduce_SFH_to_quenched_systems(simName, snapNum) :
         SFRs = hf['SubhaloSFRinRad'][:]
         R_es = hf['SubhaloHalfmassRadStars'][:]
         SFHs = hf['SFH'][:]
-        onset_times = hf['onset_times'][:]
-        termination_times = hf['termination_times'][:]
+        SFMS = hf['SFMS'][:]
+        
         quenched_mask = hf['quenched_mask'][:]
+        onset_indices = hf['onset_indices'][:]
+        onset_times = hf['onset_times'][:]
+        termination_indices = hf['termination_indices'][:]
+        termination_times = hf['termination_times'][:]
     
     # mask and copy that information to the new file
     with h5py.File(outfile, 'w') as hf :
@@ -283,7 +278,12 @@ def reduce_SFH_to_quenched_systems(simName, snapNum) :
         add_dataset(hf, SFRs[quenched_mask], 'SubhaloSFRinRad')
         add_dataset(hf, R_es[quenched_mask], 'SubhaloHalfmassRadStars')
         add_dataset(hf, SFHs[quenched_mask], 'SFH')
+        add_dataset(hf, SFMS[quenched_mask], 'SFMS')
+        
+        add_dataset(hf, quenched_mask[quenched_mask], 'quenched_mask')
+        add_dataset(hf, onset_indices[quenched_mask], 'onset_indices')
         add_dataset(hf, onset_times[quenched_mask], 'onset_times')
+        add_dataset(hf, termination_indices[quenched_mask], 'termination_indices')
         add_dataset(hf, termination_times[quenched_mask], 'termination_times')
     
     return

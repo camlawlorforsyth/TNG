@@ -1,7 +1,7 @@
 
 import numpy as np
 
-from scipy.signal import savgol_filter
+from scipy.ndimage import gaussian_filter1d
 
 from core import (get_ages_and_scalefactors, get_mpb_radii_and_centers,
                   get_particles)
@@ -74,8 +74,7 @@ def compute_age_gradient(ages, masses, rs, radius, snap) :
     
     return gradient
 
-def determine_age_gradients(simName, snapNum, window_length, polyorder,
-                            plot=False, save=False) :
+def determine_age_gradients(simName, snapNum, kernel=2, plot=False, save=False) :
     
     # define the output directory
     outDir = 'output/age_gradients(t)/'
@@ -140,7 +139,7 @@ def determine_age_gradients(simName, snapNum, window_length, polyorder,
             ts = ts[mask]
             
             # smooth the function for plotting purposes
-            smoothed = savgol_filter(gradients, window_length, polyorder)
+            smoothed = gaussian_filter1d(gradients, kernel)
             
             outfile = outDir + 'age_gradient_subID_{}.png'.format(subID)
             ylabel = r'$\nabla {\rm MWA}$'

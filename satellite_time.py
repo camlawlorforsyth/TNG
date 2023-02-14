@@ -1,14 +1,12 @@
 
 from os.path import exists
-import pickle
 import numpy as np
 
 from astropy.cosmology import Planck15 as cosmo
 import h5py
 from scipy.ndimage import gaussian_filter1d
-from scipy.signal import savgol_filter
 
-from core import add_dataset, bsPath, get, get_SFH_limits
+from core import add_dataset, bsPath, determine_mass_bin_indices, get
 import plotting as plt
 
 def add_primary_flags(simName, snapNum) :
@@ -77,7 +75,7 @@ def determine_primary_flags(url) :
     sub = get(url)
     
     flags = []
-    flags.append(sub['primary_flags']) # get the first flag at z = 0
+    flags.append(sub['primary_flag']) # get the first flag at z = 0
     
     # now work back through the main progenitor branch tree
     while sub['prog_sfid'] != -1 :
@@ -85,11 +83,11 @@ def determine_primary_flags(url) :
         sub = get(sub['related']['sublink_progenitor'])
         
         # now get the flag for the subprogenitor, working back through the tree
-        flags.append(sub['primary_flags'])
+        flags.append(sub['primary_flag'])
     
     return np.flip(flags) # return the array in time increasing order
 
-def determine_satellite_time(simName, snapNum, plot=False, save=False) :
+def determine_satellite_time(simName, snapNum) :
     
     # by definition, the primary galaxies have tsat_lookback = 0, so tsat = 13.8 Gyr
     max_age = cosmo.age(0.0).value
@@ -105,13 +103,13 @@ def determine_satellite_time(simName, snapNum, plot=False, save=False) :
         times = hf['times'][:]
         flags = hf['primary_flags'][:]
     
-    # add empty satellite times and primary confidence measures into the HDF5
-    # file to populate later
+    # add empty satellite times and a satellite flag into the HDF5 file to
+    # populate later
     with h5py.File(outfile, 'a') as hf :
         if 'satellite_times' not in hf.keys() :
             add_dataset(hf, np.full(len(subIDs), np.nan), 'satellite_times')
-        if 'primary_confidence' not in hf.keys() :
-            add_dataset(hf, np.full(len(subIDs), np.nan), 'primary_confidence')
+        if 'satellite' not in hf.keys() :
+            add_dataset(hf, np.full(len(subIDs), np.nan), 'satellite')
     
     # primary to satellite (as we work forward in time)
     ps = [1, 0]
@@ -120,6 +118,11 @@ def determine_satellite_time(simName, snapNum, plot=False, save=False) :
     # time when the galaxy transitioned from a primary to a satellite
     for i, flag in enumerate(flags) :
         
+        print('{} - out of 220'.format(i+1))
+        print(flag)
+        print()
+        
+        '''
         length = len(flag) - len(ps) + 1
         indices = [x for x in range(length) if list(flag)[x:x+len(ps)] == ps]
         # indices returns the location of the start of the subarray, so we
@@ -131,44 +134,45 @@ def determine_satellite_time(simName, snapNum, plot=False, save=False) :
         # three main populations of galaxies: primaries, satellites, and
         # ambiguous cases
         if len(indices) == 0 : # galaxies that have always been primaries
-            time, confidence = max_age, 5
+            time, satellite_flag = max_age, 0
         
         elif len(indices) == 1 : # galaxies that have only one transition
             # special cases
-            if i in [164, 183, 185, 221, 222, 241, # early, single snapshot when satellite
-                     206, 216, # early, multiple consecutive snapshots when satellite
-                     254, 258, 262, 264, 266] : # primary to satellite to primary
-                time, confidence = max_age, 5
-            elif i in [244, 253] : # less likely primaries - few late primary flags
-                time, confidence = times[indices[0]], 3
+            if i in [ # early, single snapshot when satellite
+                      # early, multiple consecutive snapshots when satellite
+                     ] : # primary to satellite to primary
+                time, satellite_flag = max_age, 0
+            elif i in [] : # less likely primaries - few late primary flags
+                time, satellite_flag = times[indices[0]], 0
             
             # for non-special cases, use the found index for the satellite time
             else :
-                time, confidence = times[indices[0]], 2
+                time, satellite_flag = times[indices[0]], 1
         
         else : # galaxies with multiple transitions
             
             # special cases
-            if i in [175, 189, 193, 199, 202, 203, 207, 209, 211, 219,
-                     220, 223, 232, 235, 236, 239, 240, 243, 245, 249,
-                     250, 257, 259, 260, 261, 263, 265, 267] : # very likely primaries
-                time, confidence = max_age, 5
-            elif i in [242, 256] : # possible primaries
-                time, confidence = times[indices[-1]], 4
-            elif i in [246, 251, 252, 255, 268] : # unlikely primaries
-                time, confidence = times[indices[-1]], 3
+            if i in [] : # very likely primaries
+                time, satellite_flag = max_age, 0
+            elif i in [] : # possible primaries
+                time, satellite_flag = times[indices[-1]], 4
+            elif i in [] : # unlikely primaries
+                time, satellite_flag = times[indices[-1]], 3
             
             # for non-special cases, use the most recent transition for simplicity
             else :
-                time, confidence = times[indices[-1]], 1
+                time, satellite_flag = times[indices[-1]], 1
         
-        # update the satellite times and confidences
+        # update the satellite times and the satellite flag
         with h5py.File(outfile, 'a') as hf :
             hf['satellite_times'][i] = time
-            hf['primary_confidence'][i] = confidence # rated out of 5
+            hf['satellite'][i] = satellite_flag
+            
+            # rated out of 5
             # where primaries are 5, possible primaries are 4,
             # less likely/unlikely primaries are 3, satellites are 2,
             # and ambiguous cases are 1
+        '''
     
     return
 
@@ -201,17 +205,12 @@ def plot_primary_flags_in_massBin(simName, snapNum, mass_bin_edges) :
     
     return
 
-def plot_quenched_systems(simName, snapNum, mass_bin_edges, window_length,
-                          polyorder) :
+def plot_quenched_systems(simName, snapNum, hw=0.1, minNum=50, kernel=2) :
     
     # define the input directory and the input file for the SFHs
     inDir = bsPath(simName)
     infile = inDir + '/{}_{}_quenched_SFHs(t).hdf5'.format(simName, snapNum)
-    
-    # open the dictionary containing the limits for the SFMS SFHs
-    limits_file = inDir + '/{}_{}_SFMS_SFH_limits(t).pkl'.format(simName, snapNum)
-    with open(limits_file, 'rb') as file :
-        limits = pickle.load(file)
+    sample_file = inDir + '/{}_{}_sample_SFHs(t).hdf5'.format(simName, snapNum)
     
     # retrieve the relevant information about the quenched systems
     with h5py.File(infile, 'r') as hf :
@@ -223,19 +222,33 @@ def plot_quenched_systems(simName, snapNum, mass_bin_edges, window_length,
         onset_times = hf['onset_times'][:]
         termination_times = hf['termination_times'][:]
     
+    # open the SFHs for the sample of all galaxies, to find those for the SFMS
+    with h5py.File(sample_file, 'r') as hf :
+        all_masses = hf['SubhaloMassStars'][:]
+        all_SFHs = hf['SFH'][:]
+        SFMS = hf['SFMS'][:] # star forming main sequence at z = 0
+    
     # loop through the galaxies in the quenched sample
     for subID, mass, SFH, tsat, tonset, tterm in zip(subIDs, masses, SFHs,
         satellite_times, onset_times, termination_times) :
         
         # smooth the SFH of the specific galaxy
-        smoothed = savgol_filter(SFH, window_length, polyorder)
+        smoothed = gaussian_filter1d(SFH, kernel)
         smoothed[smoothed < 0] = 0 # the SFR cannot be negative
         
-        # get the corresponding lower and upper two sigma limits for that mass
-        lo_SFH, hi_SFH = get_SFH_limits(limits, np.array(mass_bin_edges), mass)
+        # find galaxies in a similar mass range as the galaxy, but that are on
+        # the SFMS at z = 0
+        mass_bin = determine_mass_bin_indices(all_masses[SFMS], mass, hw=hw,
+                                              minNum=minNum)
+        
+        # use the SFH values for those comparison galaxies to determine percentiles
+        comparison_SFHs = all_SFHs[SFMS][mass_bin]
+        lo_SFH, hi_SFH = np.nanpercentile(comparison_SFHs, [2.5, 97.5], axis=0)
+        lo_SFH = gaussian_filter1d(lo_SFH, kernel)
+        hi_SFH = gaussian_filter1d(hi_SFH, kernel)
         
         # now plot the curves
-        outfile = 'output/quenched_SFHs(t)/quenched_SFH_subID_{}.png'.format(subID)
+        outfile = 'TNG50-1/quenched_SFHs(t)/quenched_SFH_subID_{}.png'.format(subID)
         plt.plot_simple_multi_with_times([times, times, times, times],
                                          [SFH, smoothed, lo_SFH, hi_SFH],
                                          ['data', 'smoothed', 'lo, hi', ''],
@@ -249,6 +262,7 @@ def plot_quenched_systems(simName, snapNum, mass_bin_edges, window_length,
                                          xmin=-0.1, xmax=13.8, scale='linear',
                                          save=True, outfile=outfile, loc=0)
         
+        '''
         # now plot the curves without the upper and lower limits
         outfile = 'output/quenched_SFHs_without_lohi(t)/quenched_SFH_subID_{}.png'.format(subID)
         plt.plot_simple_multi_with_times([times, times], [SFH, smoothed],
@@ -259,6 +273,7 @@ def plot_quenched_systems(simName, snapNum, mass_bin_edges, window_length,
                                          ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
                                          xmin=0, xmax=14, scale='linear',
                                          save=True, outfile=outfile, loc=0)
+        '''
     
     return
 

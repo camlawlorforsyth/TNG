@@ -5,11 +5,10 @@ import numpy as np
 import h5py
 from scipy.signal import savgol_filter
 
-from core import bsPath
+from core import add_dataset, bsPath
 import plotting as plt
 
-def check_SFMS_and_limits(simName, snapNum, mass_bin_edges, window_length,
-                          polyorder) :
+def check_SFMS_and_limits(simName, snapNum) :
     
     # define the input directory and the input file
     inDir = bsPath(simName)
@@ -17,22 +16,27 @@ def check_SFMS_and_limits(simName, snapNum, mass_bin_edges, window_length,
     
     # open the SFHs for the sample of candidate primary and satellite systems
     with h5py.File(infile, 'r') as hf :
-        times = hf['times'][:]
-        masses = hf['SubhaloMassStars'][:]
+        # times = hf['times'][:]
+        # masses = hf['SubhaloMassStars'][:]
         SFHs = hf['SFH'][:]
     
+    # select the SFHs corresponding to the SFMS at z = 0, and write a mask to file
+    with h5py.File(infile, 'a') as hf :
+        if 'SFMS' not in hf.keys() :
+            add_dataset(hf, SFHs[:, -1] > 0.001, 'SFMS')
+    
     # check the sSFR distribution in different mass bins
-    check_sSFR(times, masses, SFHs, mass_bin_edges)
+    # check_sSFR(times, masses, SFHs, mass_bin_edges)
     
     # check the SFMS at z = 0 in different mass bins
-    check_SFMS_at_z0(masses, SFHs, mass_bin_edges)
+    # check_SFMS_at_z0(masses, SFHs, mass_bin_edges)
     
     # compute the SFR limits for the SFMS at z = 0 in different mass bins
-    compute_SFMS_limits(simName, snapNum, masses, SFHs, mass_bin_edges,
-                        window_length, polyorder)
+    # compute_SFMS_limits(simName, snapNum, masses, SFHs, mass_bin_edges,
+    #                     window_length, polyorder)
     
     # check the limits and save plots to file
-    check_SFMS_limits(simName, snapNum, times, mass_bin_edges)
+    # check_SFMS_limits(simName, snapNum, times, mass_bin_edges)
     
     return
 
