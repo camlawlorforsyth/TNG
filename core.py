@@ -89,7 +89,7 @@ def get_ages_and_scalefactors() :
     
     return scalefactor, age
 
-def get_mpb_radii_and_centers(simName, snapNum, subID) :
+def get_mpb_radii_and_centers(simName, snapNum, subID, pad=True) :
     
     # define the mpb directory and file
     mpbDir = mpbPath(simName, snapNum)
@@ -110,6 +110,24 @@ def get_mpb_radii_and_centers(simName, snapNum, subID) :
     mpb_subIDs = np.flip(mpb_subIDs)
     radii = np.flip(halfmassradii)
     centers = np.flip(centers, axis=0)
+    
+    # pad the arrays to all have 100 entries
+    if pad and (len(snapNums) < 100) :
+        snapNums_padded = np.full(100, np.nan)
+        snapNums_padded[100 - len(snapNums):] = snapNums
+        snapNums = snapNums_padded
+        
+        mpb_subIDs_padded = np.full(100, np.nan)
+        mpb_subIDs_padded[100 - len(mpb_subIDs):] = mpb_subIDs
+        mpb_subIDs = mpb_subIDs_padded
+        
+        radii_padded = np.full(100, np.nan)
+        radii_padded[100 - len(radii):] = radii
+        radii = radii_padded
+        
+        centers_padded = np.full((100, 3), np.nan)
+        centers_padded[100 - len(centers):] = centers
+        centers = centers_padded
     
     return snapNums, mpb_subIDs, radii, centers
 
