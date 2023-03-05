@@ -1,174 +1,197 @@
 
-import pickle
+from os.path import exists
 import numpy as np
 
 import h5py
-from scipy.signal import savgol_filter
+import imageio.v3 as iio
 
 from core import add_dataset, bsPath
 import plotting as plt
 
-def check_SFMS_and_limits(simName, snapNum) :
+def check_SFMS(simName='TNG50-1', snapNum=99) :
     
-    # define the input directory and the input file
-    inDir = bsPath(simName)
-    infile = inDir + '/{}_{}_sample_SFHs(t).hdf5'.format(simName, snapNum)
+    # define the input directory, input file, and the output helper file
+    inDir = bsPath(simName, snapNum)
+    sample_file = inDir + '/{}_{}_sample_SFHs(t).hdf5'.format(simName, snapNum)
+    helper_file = inDir + '/SFMS_helper.hdf5'
     
-    # open the SFHs for the sample of candidate primary and satellite systems
-    with h5py.File(infile, 'r') as hf :
-        # times = hf['times'][:]
-        # masses = hf['SubhaloMassStars'][:]
+    # get the stellar masses and SFHs for the entire sample
+    with h5py.File(sample_file, 'r') as hf :
+        logM = hf['logM'][:]
+        SFHs = hf['SFH'][:]
+        SFMS = hf['SFMS'][:]
+    
+    # the edges, 16th, and 84th percentiles will be loaded from the helper file
+    helper = h5py.File(helper_file, 'r')
+    
+    # loop over every snapshot that had non-NaN SFR values in the catalogs
+    for snap in np.arange(2, 100) :
+        
+        # get the stellar masses, SFRs in correct units, and the quiescent mask
+        masses, SFRs, q_mask = get_logM_and_SFRs_at_snap(logM, SFHs, snap)
+        
+        # get the centers, 16th and 84th percentiles
+        centers = helper['Snapshot_{}/edges'.format(snap)][:-1] + 0.1
+        los = helper['Snapshot_{}/los'.format(snap)][:]
+        his = helper['Snapshot_{}/his'.format(snap)][:]
+        
+        # define a mask for the SFMS, and create three populations
+        SFMS_mask = SFMS[:, snap].astype(bool)
+        SFMS_masses, SFMS_SFRs = masses[SFMS_mask], SFRs[SFMS_mask]
+        
+        q_masses, q_SFRs = masses[q_mask], SFRs[q_mask]
+        
+        other_mask = (~SFMS_mask) & (~q_mask)
+        other_masses, other_SFRs = masses[other_mask], SFRs[other_mask]
+        
+        # plot the SFMS with those percentiles
+        outfile = 'TNG50-1/figures/SFMS(t)/SFMS_{}.png'.format(snap)
+        plt.plot_scatter_multi_with_bands(SFMS_masses, SFMS_SFRs,
+            q_masses, q_SFRs, other_masses, other_SFRs, centers, los, his,
+            xlabel=r'$\log(M_{*}/{\rm M}_{\odot})$',
+            ylabel=r'$\log({\rm SFR}/{\rm M}_{\odot}~{\rm yr}^{-1}$)',
+            xmin=6.8, xmax=12.8, ymin=-6.4, ymax=3, outfile=outfile, save=True)
+    
+    helper.close()
+    
+    return
+
+def compute_SFMS_percentile_limits(simName='TNG50-1', snapNum=99) :
+    
+    # define the input directory, input file, and the output helper file
+    inDir = bsPath(simName, snapNum)
+    sample_file = inDir + '/{}_{}_sample_SFHs(t).hdf5'.format(simName, snapNum)
+    helper_file = inDir + '/SFMS_helper.hdf5'
+    
+    # get the stellar masses and SFHs for the entire sample
+    with h5py.File(sample_file, 'r') as hf :
+        logM = hf['logM'][:]
         SFHs = hf['SFH'][:]
     
-    # select the SFHs corresponding to the SFMS at z = 0, and write a mask to file
-    with h5py.File(infile, 'a') as hf :
-        if 'SFMS' not in hf.keys() :
-            add_dataset(hf, SFHs[:, -1] > 0.001, 'SFMS')
-    
-    # check the sSFR distribution in different mass bins
-    # check_sSFR(times, masses, SFHs, mass_bin_edges)
-    
-    # check the SFMS at z = 0 in different mass bins
-    # check_SFMS_at_z0(masses, SFHs, mass_bin_edges)
-    
-    # compute the SFR limits for the SFMS at z = 0 in different mass bins
-    # compute_SFMS_limits(simName, snapNum, masses, SFHs, mass_bin_edges,
-    #                     window_length, polyorder)
-    
-    # check the limits and save plots to file
-    # check_SFMS_limits(simName, snapNum, times, mass_bin_edges)
-    
-    return
-
-def check_sSFR(times, masses, SFHs, mass_bin_edges) :
+    # loop over every snapshot that had non-NaN SFR values in the catalogs
+    for snap in np.arange(2, 100) :
         
-    for lo, hi in zip(mass_bin_edges[:-1], mass_bin_edges[1:]) :
+        # get the stellar masses, SFRs in correct units, and the quiescent mask
+        masses, SFRs, q_mask = get_logM_and_SFRs_at_snap(logM, SFHs, snap)
         
-        # define the subsample for the mass range/bin of interest
-        mask = (masses >= lo) & (masses < hi)
-        subsample_SFHs = SFHs[mask][:]
-        subsample_masses = masses[mask]
+        # save a basic version of the plot
+        outfile = '{}/figures/SFMS(t)_without_bands/SFMS_{}.png'.format(simName, snap)
+        plt.plot_scatter(masses, SFRs, 'k', '', 'o',
+            xlabel=r'$\log(M_{*}/{\rm M}_{\odot})$',
+            ylabel=r'$\log({\rm SFR}/{\rm M}_{\odot}~{\rm yr}^{-1}$)',
+            xmin=6.8, xmax=12.8, ymin=-6.4, ymax=3, outfile=outfile, save=True)
         
-        # define an empty array to hold the sSFRs
-        sSFRs = np.full((len(subsample_SFHs), len(times)), np.nan)
+        # define the edges for the mass bins, using only galaxies with both
+        # a good mass and a good SFR
+        temp = masses[~(np.isnan(masses) | np.isnan(SFRs))]
+        start = (np.min(temp)//0.2)*0.2
+        end = (np.max(temp)//0.2)*0.2 + 0.3 # add 0.3 instead of 0.2 to
+        edges = np.arange(start, end, 0.2)  # account for floating point errors
         
-        # set a lower limit for the SFH so that we can take the log more easily
-        subsample_SFHs[subsample_SFHs == 0.0] = 1e-6
+        # find galaxies that have active SF
+        SF_logM, SF_SFRs = masses[~q_mask], SFRs[~q_mask]
         
-        # compute the sSFRs for the sample in the mass bin
-        for i in range(len(subsample_SFHs)) :
-            sSFRs[i] = np.log10(subsample_SFHs[i, :]) - subsample_masses[i]
+        # now find the 16th and 84th percentiles for the SFR of galaxies in
+        # each mass bin
+        centers, los, his = [], [], [] # centers is only used for plotting
+        for first, second in zip(edges, edges[1:]) :
+            centers.append(np.mean([first, second]))
+            
+            bin_mask = (SF_logM >= first) & (SF_logM < second)
+            
+            # we require at least one galaxy to take the percentiles
+            if np.sum(bin_mask) > 1 :
+                lo, hi = np.percentile(SF_SFRs[bin_mask], [16, 84])
+            else :
+                lo, hi = np.nan, np.nan
+            
+            # append those values
+            los.append(lo)
+            his.append(hi)
         
-        # create an array of those times, and make a 1D array for the sSFRs
-        xs = np.array(list(times)*len(sSFRs))
-        ys = sSFRs.flatten()
+        # save the 16th and 84th percentiles for future use
+        if exists(helper_file) :
+            with h5py.File(helper_file, 'a') as hf :
+                add_dataset(hf, edges, 'Snapshot_{}/edges'.format(snap))
+                add_dataset(hf, np.array(los), 'Snapshot_{}/los'.format(snap))
+                add_dataset(hf, np.array(his), 'Snapshot_{}/his'.format(snap))
         
-        # mask out infinite values, coming from np.log10(0)
-        good = np.isfinite(ys)
-        
-        # plot the 2D histograms
-        title = '{}'.format(lo) + r'$< \log(M_{*}/M_{\odot}) <$' + '{}'.format(hi)
-        plt.histogram_2d(xs[good], ys[good], bins=[np.arange(0, 14.5, 0.5), 20],
-                         xlabel=r'$t$ (Gyr)',
-                         ylabel=r'$\log({\rm sSFR} / {\rm yr}^{-1}$)',
-                         title=title, xmin=0, xmax=13.8, ymin=-19, ymax=-8)
-    
-    return
-
-def check_SFMS_at_z0(masses, SFHs, mass_bin_edges) :
-    
-    for i, (lo, hi) in enumerate(zip(mass_bin_edges[:-1], mass_bin_edges[1:])) :
-        
-        # define the subsample for the mass range/bin of interest
-        mask = (masses >= lo) & (masses < hi)
-        subsample_SFHs = SFHs[mask][:]
-        subsample_masses = masses[mask]
-        
-        # define an empty array to hold the SFRs at z = 0, and a mask for the
-        # quiescent population
-        SFRs_at_z0 = np.full(len(subsample_SFHs), np.nan)
-        q_mask = subsample_SFHs[:, -1] == 0
-        
-        # populate that array with the corresponding SFRs, separating the
-        # quiescent population from the star forming population
-        SFRs_at_z0[q_mask] = -5 - np.random.rand(np.sum(q_mask))
-        SFRs_at_z0[~q_mask] = np.log10(subsample_SFHs[:, -1][~q_mask])
-        
-        # plot and save the SFMS in each mass bin
-        outfile = 'output/SFMS(t)/SFMS_z0_massBin_{}.png'.format(i)
-        plt.plot_scatter(subsample_masses, SFRs_at_z0, 'k', '', 'o',
-                         xlabel=r'$\log(M_{*}/M_{\odot})$',
-                         ylabel=r'$\log(SFR/M_{\odot}$ yr$^{-1}$)',
-                         save=True, outfile=outfile)
+        # plot the SFMS with those percentiles
+        outfile = '{}/figures/SFMS(t)/SFMS_{}.png'.format(simName, snap)
+        plt.plot_scatter_with_bands(masses, SFRs, centers, los, his,
+            xlabel=r'$\log(M_{*}/{\rm M}_{\odot})$',
+            ylabel=r'$\log({\rm SFR}/{\rm M}_{\odot}~{\rm yr}^{-1}$)',
+            xmin=6.8, xmax=12.8, ymin=-6.4, ymax=3, outfile=outfile, save=True)
     
     return
 
-def compute_SFMS_limits(simName, snapNum, masses, SFHs, mass_bin_edges,
-                        window_length, polyorder, logSF_tresh=-3) :
+def get_logM_and_SFRs_at_snap(logM, SFHs, snap) :
     
-    # define the output directory and the output file
-    outDir = bsPath(simName)
-    outfile = outDir + '/{}_{}_SFMS_SFH_limits(t).pkl'.format(simName, snapNum)
+    # get the stellar masses and SFHs at the given snapshot
+    masses, SFRs = logM[:, snap], SFHs[:, snap]
     
-    dictionary = {}
-    for i, (lo, hi) in enumerate(zip(mass_bin_edges[:-1], mass_bin_edges[1:])) :
-        
-        # define the subsample for the mass range/bin of interest
-        mask = (masses >= lo) & (masses < hi)
-        subsample_SFHs = SFHs[mask][:]
-        
-        # define a mask for the star forming main sequence (at z = 0)
-        # population (which was verified in `check_SFMS_at_z0`), and select
-        # those SFHs
-        SFMS_at_z0_mask = np.log10(subsample_SFHs[:, -1]) > logSF_tresh
-        SFMS_at_z0 = subsample_SFHs[SFMS_at_z0_mask]
-        
-        # use the SFMS population to define the SFR +/- 2 sigma limits
-        lo_SFH, hi_SFH = np.percentile(SFMS_at_z0, [2.5, 97.5], axis=0)
-        
-        # smooth the limits so they are less choppy
-        lo_SFH = savgol_filter(lo_SFH, window_length, polyorder)
-        lo_SFH[lo_SFH < 0] = 0
-        
-        hi_SFH = savgol_filter(hi_SFH, window_length, polyorder)
-        hi_SFH[hi_SFH < 0] = 0
-        
-        # now create the appropriate label and store info into a dictionary
-        label = 'mass_bin_{}'.format(i)
-        dictionary[label] = {}
-        dictionary[label]['lo'] = lo
-        dictionary[label]['hi'] = hi
-        dictionary[label]['lo_SFH'] = lo_SFH
-        dictionary[label]['hi_SFH'] = hi_SFH
+    # define a mask for the quiescent population
+    q_mask = (SFRs == 0)
     
-    # save the dictionary to a pickle object file for future use
-    with open(outfile, 'wb') as file :
-        pickle.dump(dictionary, file)
+    # update values in the array to prepare for taking the logarithm
+    SFRs[q_mask] = 1e-5
+    SFRs = np.log10(SFRs)
+    
+    # perturb the quiescent values
+    SFRs[q_mask] = -5 - np.random.rand(np.sum(q_mask))
+    
+    return masses, SFRs, q_mask
+
+def determine_SFMS(simName='TNG50-1', snapNum=99) :
+    
+    # define the input directory, input file, and the output helper file
+    inDir = bsPath(simName, snapNum)
+    sample_file = inDir + '/{}_{}_sample_SFHs(t).hdf5'.format(simName, snapNum)
+    helper_file = inDir + '/SFMS_helper.hdf5'
+    
+    # get the stellar masses and SFHs for the entire sample
+    with h5py.File(sample_file, 'r') as hf :
+        logM = hf['logM'][:]
+        SFHs = hf['SFH'][:]
+    
+    # the edges, 16th, and 84th percentiles will be loaded from the helper file
+    helper = h5py.File(helper_file, 'r')
+    
+    # loop over every snapshot that had non-NaN SFR values in the catalogs
+    for snap in np.arange(2, 100) :
+        
+        # get the stellar masses and SFRs in correct units
+        masses, SFRs, _ = get_logM_and_SFRs_at_snap(logM, SFHs, snap)
+        
+        # get the edges, 16th, and 84th percentile limits
+        edges = helper['Snapshot_{}/edges'.format(snap)][:]
+        los = helper['Snapshot_{}/los'.format(snap)][:]
+        his = helper['Snapshot_{}/his'.format(snap)][:]
+        
+        # check if each galaxy is on the SFMS at the given snapshot
+        SFMS_at_snap = []
+        for mass, SFR in zip(masses, SFRs) :
+            
+            if ~np.isnan(mass) : # if the mass is intact find the mass bin where
+                idx = np.where(mass < edges)[0][0] - 1 # the galaxy is located
+                
+                # determine if the galaxy is on the SFMS
+                SFMS_quality = (SFR >= los[idx]) & (SFR <= his[idx])
+                SFMS_at_snap.append(SFMS_quality)
+            else : # if the mass isn't intact then the galaxy isn't on the SFMS
+                SFMS_at_snap.append(False)
+        
+        # place the values at the given snapshot into the array for all snapshots
+        with h5py.File(sample_file, 'a') as hf :
+            hf['SFMS'][:, snap] = np.array(SFMS_at_snap).astype(int)
+    
+    helper.close()
     
     return
 
-def check_SFMS_limits(simName, snapNum, times, mass_bin_edges, save=False) :
+def save_SFMS_gif() :
     
-    # define the output directory and the output file
-    inDir = bsPath(simName)
-    infile = inDir + '/{}_{}_SFMS_SFH_limits(t).pkl'.format(simName, snapNum)
-    
-    # open the dictionary containing the SFH limits
-    with open(infile, 'rb') as file :
-        dic = pickle.load(file)
-    
-    # iterate over the mass bins and save plots of the limits for reference
-    for i, key in enumerate(dic.keys()) :
-        lo, hi = dic[key]['lo_SFH'], dic[key]['hi_SFH']
-        
-        # plot and save the SFH limits in each mass bin
-        outfile = 'output/SFH_limits(t)/SFMS_SFH_limits_massBin_{}.png'.format(i)
-        plt.plot_simple_multi([times, times], [lo, hi],
-                              ['lo, hi', ''], ['grey', 'grey'], ['', ''],
-                              ['-', '-'], [1, 1],
-                              xlabel=r'$t$ (Gyr)',
-                              ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
-                              xmin=-0.1, xmax=13.8, scale='linear',
-                              outfile=outfile, save=save)
+    frames = [iio.imread(f'TNG50-1/figures/SFMS(t)/SFMS_{i}.png') for i in range(2, 100)]
+    iio.imwrite('SFMS(t).gif', np.stack(frames, axis=0))
     
     return

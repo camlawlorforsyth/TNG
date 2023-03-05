@@ -7,7 +7,7 @@ import illustris_python as il
 from core import (bsPath, convert_distance_units, convert_mass_units,
                   convert_metallicity_units, gcPath)
 
-def download_catalogs(simName, snapNum) :
+def download_catalogs(simName='TNG50-1', snapNum=99) :
     # https://www.tng-project.org/data/docs/scripts/
     
     groupsDir = gcPath(simName, snapNum)

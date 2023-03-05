@@ -26,7 +26,7 @@ def add_dataset(h5file, data, label, dtype=None) :
     return
 
 def bsPath(simName) :
-    return '{}/'.format(simName)
+    return '{}'.format(simName)
 
 def convert_distance_units(distances) :
     return distances/cosmo.h
@@ -43,14 +43,24 @@ def cutoutPath(simName, snapNum) :
 def determine_mass_bin_indices(masses, mass, hw=0.1, minNum=50) :
     
     mass_bin_mask = (masses >= mass - hw) & (masses <= mass + hw)
+    # print(mass_bin_mask)
     
     if np.sum(mass_bin_mask) >= minNum :
         return mass_bin_mask
     else :
-        return(determine_mass_bin_indices(masses, mass, hw + 0.005))
+        return determine_mass_bin_indices(masses, mass, hw=hw+0.005, minNum=minNum)
 
-def gcPath(simName, snapNum) :
-    return bsPath(simName) + '/groups_{:3.0f}/'.format(snapNum).replace(' ', '0')
+def find_nearest(times, index_times) :
+    
+    indices = []
+    for time in index_times :
+        index = (np.abs(times - time)).argmin()
+        indices.append(index)
+    
+    return indices
+
+def gcPath(simName='TNG50-1', snapNum=99) :
+    return 'F:/{}/groups_{:3.0f}/'.format(simName, snapNum).replace(' ', '0')
 
 def get(path, directory=None, params=None, filename=None) :
     # https://www.tng-project.org/data/docs/api/
@@ -89,47 +99,71 @@ def get_ages_and_scalefactors() :
     
     return scalefactor, age
 
+def get_mpb_masses(subID, simName='TNG50-1', snapNum=99, pad=True) :
+    
+    # define the mpb directory and file
+    mpbDir = mpbPath(simName, snapNum)
+    mpbfile = mpbDir + 'sublink_mpb_{}.hdf5'.format(subID)
+    
+    try :
+        with h5py.File(mpbfile, 'r') as hf :
+            logM = np.flip(hf['SubhaloMassType'][:, 4]) # get the stellar masses
+        
+        # at snapshot 0, some masses are 0, which logarithms don't like
+        logM[logM == 0] = 1e-10*cosmo.h
+        
+        # pad the arrays to all have 100 entries
+        if pad and (len(logM) < 100) :
+            logM_padded = np.full(100, np.nan)
+            logM_padded[100 - len(logM):] = logM
+            logM = logM_padded
+        
+        return convert_mass_units(logM)
+    
+    except KeyError :
+        return np.full(100, np.nan)
+
 def get_mpb_radii_and_centers(simName, snapNum, subID, pad=True) :
     
     # define the mpb directory and file
     mpbDir = mpbPath(simName, snapNum)
     mpbfile = mpbDir + 'sublink_mpb_{}.hdf5'.format(subID)
     
-    # get the snapshot numbers, mpb subIDs, stellar halfmassradii, and galaxy
-    # centers
-    with h5py.File(mpbfile, 'r') as hf :
-        snapNums = hf['SnapNum'][:]
-        mpb_subIDs = hf['SubfindID'][:]
-        halfmassradii = hf['SubhaloHalfmassRadType'][:, 4]
-        centers = hf['SubhaloPos'][:]
-    
-    # given that the mpb files are arranged such that the most recent redshift
-    # (z = 0) is at the beginning of arrays, we'll flip the arrays to conform
-    # to an increasing-time convention
-    snapNums = np.flip(snapNums)
-    mpb_subIDs = np.flip(mpb_subIDs)
-    radii = np.flip(halfmassradii)
-    centers = np.flip(centers, axis=0)
-    
-    # pad the arrays to all have 100 entries
-    if pad and (len(snapNums) < 100) :
-        snapNums_padded = np.full(100, np.nan)
-        snapNums_padded[100 - len(snapNums):] = snapNums
-        snapNums = snapNums_padded
+    try :
+        # get the snapshot numbers, mpb subIDs, stellar halfmassradii, and galaxy
+        # centers
+        # given that the mpb files are arranged such that the most recent redshift
+        # (z = 0) is at the beginning of arrays, we'll flip the arrays to conform
+        # to an increasing-time convention
+        with h5py.File(mpbfile, 'r') as hf :
+            snapNums = np.flip(hf['SnapNum'][:])
+            mpb_subIDs = np.flip(hf['SubfindID'][:])
+            radii = np.flip(hf['SubhaloHalfmassRadType'][:, 4])
+            centers = np.flip(hf['SubhaloPos'][:], axis=0)
         
-        mpb_subIDs_padded = np.full(100, np.nan)
-        mpb_subIDs_padded[100 - len(mpb_subIDs):] = mpb_subIDs
-        mpb_subIDs = mpb_subIDs_padded
+        # pad the arrays to all have 100 entries
+        if pad and (len(snapNums) < 100) :
+            snapNums_padded = np.full(100, np.nan)
+            snapNums_padded[100 - len(snapNums):] = snapNums
+            snapNums = snapNums_padded
+            
+            mpb_subIDs_padded = np.full(100, np.nan)
+            mpb_subIDs_padded[100 - len(mpb_subIDs):] = mpb_subIDs
+            mpb_subIDs = mpb_subIDs_padded
+            
+            radii_padded = np.full(100, np.nan)
+            radii_padded[100 - len(radii):] = radii
+            radii = radii_padded
+            
+            centers_padded = np.full((100, 3), np.nan)
+            centers_padded[100 - len(centers):] = centers
+            centers = centers_padded
         
-        radii_padded = np.full(100, np.nan)
-        radii_padded[100 - len(radii):] = radii
-        radii = radii_padded
-        
-        centers_padded = np.full((100, 3), np.nan)
-        centers_padded[100 - len(centers):] = centers
-        centers = centers_padded
+        return snapNums.astype(int), mpb_subIDs.astype(int), radii, centers
     
-    return snapNums, mpb_subIDs, radii, centers
+    except KeyError :
+        null = np.full(100, np.nan)
+        return np.arange(100), null, null, np.full((100, 3), np.nan)
 
 def get_particle_positions(simName, snapNum, snap, subID, center) :
     
@@ -221,19 +255,19 @@ def get_SFH_limits(limits_dic, edges, mass) :
     
     return subdic['lo_SFH'], subdic['hi_SFH'] # return those limits
 
-def mpbPath(simName, snapNum) :
-    return bsPath(simName) + '/mpbs_{:3.0f}/'.format(snapNum).replace(' ', '0')
+def mpbPath(simName='TNG50-1', snapNum=99) :
+    return 'F:/{}/mpbs_{:3.0f}/'.format(simName, snapNum).replace(' ', '0')
 
-def mpbCutoutPath(simName, snapNum) :
-    return bsPath(simName) + '/mpb_cutouts_{:3.0f}/'.format(snapNum).replace(' ', '0')
+def mpbCutoutPath(simName='TNG50-1', snapNum=99) :
+    return 'F:/{}/mpb_cutouts_{:3.0f}/'.format(simName, snapNum).replace(' ', '0')
 
-def offsetPath(simName) :
-    return '{}/postprocessing/offsets'.format(simName)
+def offsetPath(simName='TNG50-1') :
+    return '{}/'.format(simName)
 
-def save_lookup_table():
+def save_lookup_table(simName='TNG50-1'):
     
-    outfile_fits = 'TNG50-1/scalefactor_to_Gyr.fits'
-    outfile_hdf5 = 'TNG50-1/scalefactor_to_Gyr.hdf5'
+    outfile_fits = '{}/scalefactor_to_Gyr.fits'.format(simName)
+    outfile_hdf5 = '{}/scalefactor_to_Gyr.hdf5'.format(simName)
     
     if (not exists(outfile_fits)) and (not exists(outfile_hdf5)) :
         
@@ -254,9 +288,9 @@ def save_lookup_table():
 def snapPath(simName, snapNum) :
     return bsPath(simName) + '/snapdir_{:3.0f}/'.format(snapNum).replace(' ', '0')
 
-def snapshot_redshifts(simName) :
+def snapshot_redshifts(simName='TNG50-1') :
     
-    outfile = 'TNG50-1/snapshot_redshifts.fits'
+    outfile = '{}/snapshot_redshifts.fits'.format(simName)
     
     if not exists(outfile) :
         snaps = get('http://www.tng-project.org/api/{}/snapshots/'.format(simName))

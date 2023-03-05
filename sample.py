@@ -6,7 +6,7 @@ from astropy.table import Table, join
 
 from core import bsPath, gcPath, get
 
-def build_final_sample(simName, snapNum) :
+def build_final_sample(simName='TNG50-1', snapNum=99) :
     
     groupsDir = gcPath(simName, snapNum)
     outDir = bsPath(simName)
@@ -29,7 +29,7 @@ def build_final_sample(simName, snapNum) :
     
     return
 
-def primary_and_satellite_flags(simName, snapNum, mass_min=8.0) :
+def primary_and_satellite_flags(simName='TNG50-1', snapNum=99, mass_min=8.0) :
     
     outDir = bsPath(simName)
     
