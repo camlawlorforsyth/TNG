@@ -40,26 +40,30 @@ def main(simName='TNG50-1', snapNum=99, hw=0.1, minNum=50, kernel=2) :
     # creates subhalos_catalog_simName_snapNum.fits
     catalogs.download_catalogs(simName=simName, snapNum=snapNum)
     
-    # determine the primary and satellite subhalos with Mstar >= 10^8 at z = 0
+    # determine the primary and satellite subhalos with Mstar >= 10^8 at z = 0,
+    # the z = 0 environment for the final sample, and build the final
+    # sample
     # creates simName_snapNum_primary-satellite-flagIDs.fits
-    sample.primary_and_satellite_flags(simName=simName, snapNum=snapNum)
-    
-    # build the final sample
+    # creates simName_snapNum_env.fits
     # creates simName_snapNum_sample.fits
-    sample.build_final_sample(simName, snapNum)
+    # creates simName_snapNum_sample.hdf5
+    sample.primary_and_satellite_flags(simName=simName, snapNum=snapNum)
+    sample.determine_environment(simName=simName, snapNum=snapNum)
+    sample.build_final_sample(simName=simName, snapNum=snapNum)
+    sample.resave_as_hdf5(simName=simName, snapNum=snapNum)
     
     # get SFHs from the Donnari/Pillipech catalog for the selected subhalos
-    # creates simName_snapNum_sample_SFHs(t).hdf5
+    # appends to simName_snapNum_sample.hdf5
     sfhs.download_all_mpbs(simName=simName, snapNum=snapNum)
     sfhs.determine_all_histories_from_catalog(simName=simName, snapNum=snapNum)
     
     # determine the SFMS at each snapshot
-    # appends to simName_snapNum_sample_SFHs(t).hdf5
+    # appends to simName_snapNum_sample.hdf5
     sfms.compute_SFMS_percentile_limits(simName=simName, snapNum=snapNum)
     sfms.determine_SFMS(simName=simName, snapNum=snapNum)
     
     # determine which systems are quenched by our definition
-    # appends to simName_snapNum_sample_SFHs(t).hdf5
+    # appends to simName_snapNum_sample.hdf5
     quenched.determine_comparison_systems_relative(simName=simName,
         snapNum=snapNum, hw=hw, minNum=minNum)
     quenched.determine_quenched_systems_relative(simName=simName,

@@ -5,12 +5,15 @@ from astropy.table import Table
 import illustris_python as il
 
 from core import (bsPath, convert_distance_units, convert_mass_units,
-                  convert_metallicity_units, gcPath)
+                  convert_metallicity_units)
 
 def download_catalogs(simName='TNG50-1', snapNum=99) :
     # https://www.tng-project.org/data/docs/scripts/
     
-    groupsDir = gcPath(simName, snapNum)
+    # define the output directory and files
+    outDir = bsPath(simName)
+    halos_outfile = outDir + '/{}_{}_halos_catalog.fits'.format(simName, snapNum)
+    subhalos_outfile = outDir + '/{}_{}_subhalos_catalog.fits'.format(simName, snapNum)
     
     # download halo properties for halos in the group catalogs
     
@@ -46,12 +49,11 @@ def download_catalogs(simName='TNG50-1', snapNum=99) :
     halos['GroupID'] = np.arange(halos['count'])
     
     # save information to outfile
-    outfile = groupsDir + 'halos_catalog_{}_{}.fits'.format(simName, snapNum)
     names = ['GroupID', 'GroupFirstSub', 'GroupMass', 'GroupMassStars',
              'GroupNsubs', 'Group_M_Crit200', 'Group_M_Crit500',
              'Group_R_Crit200', 'Group_R_Crit500']
     table = Table([halos[name] for name in names], names=names)
-    table.write(outfile)
+    table.write(halos_outfile)
     
     # download subhalo properties for subhalos (galaxies) in the group catalogs
     
@@ -133,7 +135,6 @@ def download_catalogs(simName='TNG50-1', snapNum=99) :
     subhalos['SubhaloID'] = np.arange(subhalos['count'])
     
     # save information to outfile
-    outfile = groupsDir + 'subhalos_catalog_{}_{}.fits'.format(simName, snapNum)
     names = ['SubhaloID', 'SubhaloFlag', 'SubhaloGrNr', 'SubhaloParent',
              'SubhaloMass', 'SubhaloMassStars',
              'SubhaloMassInHalfRad', 'SubhaloMassInHalfRadStars',
@@ -145,7 +146,7 @@ def download_catalogs(simName='TNG50-1', snapNum=99) :
              'SubhaloStarMetallicityMaxRad', 'SubhaloStellarPhotometrics',
              'SubhaloVmaxRad']
     table = Table([subhalos[name] for name in names], names=names)
-    table.write(outfile)
+    table.write(subhalos_outfile)
     
     return
 
