@@ -137,6 +137,7 @@ dmypy.json
 *.gif
 *.npy
 *.npz
+*.pdf
 *.png
 *.pkl
 *.xlsx
