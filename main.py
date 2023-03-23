@@ -36,25 +36,26 @@ def main(simName='TNG50-1', snapNum=99, hw=0.1, minNum=50, kernel=2) :
     
     # download halo and subhalo properties ("fields") for halos and subhalos
     # from the group catalogs
-    # creates halos_catalog_simName_snapNum.fits
-    # creates subhalos_catalog_simName_snapNum.fits
+    # creates simName_snapNum_halos_catalog.fits
+    # creates simName_snapNum_subhalos_catalog.fits
     catalogs.download_catalogs(simName=simName, snapNum=snapNum)
     
     # determine the primary and satellite subhalos with Mstar >= 10^8 at z = 0,
-    # the z = 0 environment for the final sample, and build the final
-    # sample
+    # the z = 0 environments, build the final sample, and download mpb files
     # creates simName_snapNum_primary-satellite-flagIDs.fits
     # creates simName_snapNum_env.fits
     # creates simName_snapNum_sample.fits
     # creates simName_snapNum_sample.hdf5
+    # appends to simName_snapNum_sample.hdf5
     sample.primary_and_satellite_flags(simName=simName, snapNum=snapNum)
     sample.determine_environment(simName=simName, snapNum=snapNum)
     sample.build_final_sample(simName=simName, snapNum=snapNum)
     sample.resave_as_hdf5(simName=simName, snapNum=snapNum)
+    sample.download_all_mpbs(simName=simName, snapNum=snapNum)
+    sample.save_mpb_values(simName=simName, snapNum=snapNum)
     
     # get SFHs from the Donnari/Pillipech catalog for the selected subhalos
     # appends to simName_snapNum_sample.hdf5
-    sfhs.download_all_mpbs(simName=simName, snapNum=snapNum)
     sfhs.determine_all_histories_from_catalog(simName=simName, snapNum=snapNum)
     
     # determine the SFMS at each snapshot
