@@ -5,55 +5,19 @@ import numpy as np
 import h5py
 
 from core import (add_dataset, bsPath, determine_mass_bin_indices, find_nearest,
-                  get, mpbCutoutPath)
+                  get, get_quenched_data, mpbCutoutPath)
 
 def determine_mpb_cutouts_to_download(simName='TNG50-1', snapNum=99,
                                       hw=0.1, minNum=50, save=True) :
     
-    # define the input directory and file, and output file
+    # define the input directory and file
     inDir = bsPath(simName)
-    infile = inDir + '/{}_{}_sample_SFHs(t).hdf5'.format(simName, snapNum)
     outfile = inDir + '/{}_{}_mpb_cutouts_to_download.hdf5'.format(simName, snapNum)
     
-    # get the relevant information for the quenched sample
-    with h5py.File(infile, 'r') as hf :
-        times = hf['times'][:]
-        subIDs = hf['SubhaloID'][:]
-        logM = hf['logM'][:]
-        SFMS = hf['SFMS'][:].astype(bool) # (boolean) SFMS at each snapshot
-        quenched = hf['quenched'][:]
-        ionsets = hf['onset_indices'][:].astype(int)
-        tonsets = hf['onset_times'][:]
-        iterms = hf['termination_indices'][:].astype(int)
-        tterms = hf['termination_times'][:]
-    
-    with h5py.File('TNG50-1/all_subIDs.hdf5', 'r') as hf :
-        all_subIDs = hf['subIDs'][:].astype(int)
-    
-    # define the snapshots in the simulation
-    snapshots = np.arange(100)
-    
-    # let's only use quenched galaxies with 8 <= logM <= 11
-    last_logM = logM[:, -1]
-    mask = quenched & (last_logM >= 8) & (last_logM < 11)
-    q_subIDs = subIDs[mask]
-    q_logM = logM[mask]
-    q_ionsets = ionsets[mask]
-    q_tonsets = tonsets[mask]
-    q_iterms = iterms[mask]
-    q_tterms = tterms[mask]
-    
-    # these galaxies have a termination index before an onset index -> update
-    # onset index to only before termination? this is simple enough
-    bad_mask = (q_iterms - q_ionsets < 0)
-    # print(q_subIDs[bad_mask])
-    good = ~bad_mask
-    q_subIDs = q_subIDs[good]
-    q_logM = q_logM[good]
-    q_ionsets = q_ionsets[good]
-    q_tonsets = q_tonsets[good]
-    q_iterms = q_iterms[good]
-    q_tterms = q_tterms[good]
+    # get relevant information for the general sample, and quenched systems
+    (snapshots, redshifts, times, all_subIDs, logM, SFHs, SFMS, q_subIDs,
+     q_logM, q_lo_SFH, q_hi_SFH, q_ionsets, q_tonsets,
+     q_iterms, q_tterms) = get_quenched_data(simName=simName, snapNum=snapNum)
     
     # loop through the quenched galaxies in the sample
     snap_list, subIDs_to_download = [], []
@@ -75,9 +39,9 @@ def determine_mpb_cutouts_to_download(simName='TNG50-1', snapNum=99,
                               q_logM[indices]) :  # q_logM[q_ionset:q_iterm+1]
             
             # get values at the snapshot
+            all_subIDs_at_snap = all_subIDs[:, snap]
             logM_at_snap = logM[:, snap]
             SFMS_at_snap = SFMS[:, snap]
-            all_subIDs_at_snap = all_subIDs[:, snap]
             
             # create a mask for the SFMS galaxy masses at that snapshot
             SFMS_at_snap_masses_mask = np.where(SFMS_at_snap > 0,
@@ -112,6 +76,31 @@ def determine_mpb_cutouts_to_download(simName='TNG50-1', snapNum=99,
     
     return snaps, IDs
 
+def download_mpb_cutouts_simple(simName='TNG50-1', snapNum=99) :
+    
+    # define the input directory and file, and output file
+    inDir = bsPath(simName)
+    infile = inDir + '/{}_{}_sample(t).hdf5'.format(simName, snapNum)
+    outfile = inDir + '/{}_{}_mpb_cutouts_to_download.hdf5'.format(simName, snapNum)
+    
+    # get relevant information for the general sample
+    with h5py.File(infile, 'r') as hf :
+        snaps = hf['snapshots'][:]
+        subIDs = hf['subIDs'][:].astype(int)
+    
+    list_of_subIDs, list_of_snaps = [], []
+    for row in subIDs :
+        valid = (row > 0)
+        for ID, snap in zip(row[valid], snaps[valid]):
+            list_of_snaps.append(snap)
+            list_of_subIDs.append(ID)
+    
+    with h5py.File(outfile, 'w') as hf :
+        add_dataset(hf, np.array(list_of_snaps), 'list_of_snaps')
+        add_dataset(hf, np.array(list_of_subIDs), 'list_of_subIDs')
+    
+    return
+
 def download_mpb_cutouts(simName='TNG50-1', snapNum=99) :
     
     # define the input directory and file, and output directory for the mpb cutouts
@@ -139,6 +128,8 @@ def download_mpb_cutouts(simName='TNG50-1', snapNum=99) :
         if not exists(outDir + filename) :
             get(url + '/cutout.hdf5', directory=outDir, params=params,
                 filename=filename)
+        
+        print('{} done'.format(filename))
     
     return
 
