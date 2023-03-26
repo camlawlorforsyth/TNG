@@ -84,32 +84,39 @@ def determine_all_histories(simName, snapNum) :
     
     return
 
-def download_all_cutouts(simName, snapNum) :
+def history_from_catalog(snapNums, mpb_subIDs, simName='TNG50-1', snapNum=99,
+                         delta_t=100) :
     
-    cutoutDir = cutoutPath(simName, snapNum)
-    outDir = bsPath(simName)
+    # define the input directory and file
+    inDir = bsPath(simName)
+    catalog_file = inDir + '/Donnari_Pillepich_star_formation_rates.hdf5'
     
-    # define the parameters that are requested for each particle in the cutout
-    params = {'stars':'Coordinates,GFM_InitialMass,GFM_StellarFormationTime'}
-    
-    # open the table of subhalos in the sample that we want SFHs for
-    subhalos = Table.read(outDir + '/{}_{}_sample.fits'.format(simName, snapNum))
-    
-    for subID in subhalos['SubhaloID'] :
-        outfile = cutoutDir + 'cutout_{}.hdf5'.format(subID)
-        url = 'http://www.tng-project.org/api/{}/snapshots/{}/subhalos/{}'.format(
-            simName, snapNum, subID)
+    SFH = [np.nan, np.nan]
+    for snap, mpb_subID in zip(snapNums, mpb_subIDs) :
         
-        # check if the cutout file exists
-        if not exists(outfile) :
-            # retrieve information about the galaxy at the redshift of interest
-            sub = get(url)
+        # the catalog only exists for snapshots above snapshot 1
+        if snap >= 2 :
             
-            # save the cutout file into the output directory
-            get(sub['meta']['url'] + '/cutout.hdf5', directory=cutoutDir,
-                params=params)
+            # get the relevant SFRs for all subIDs in the snapshot
+            with h5py.File(catalog_file, 'r') as hf :
+                subIDs_in_snap = hf['Snapshot_{}/SubfindID'.format(snap)][:]
+                SFRs_in_snap = hf['Snapshot_{}/SFR_MsunPerYrs_in_InRad_{}Myrs'.format(
+                    snap, delta_t)][:]
+            
+            # check to see if the subID of interest has a value in the catalog
+            exists = np.where(subIDs_in_snap == mpb_subID)[0]
+            
+            # if the subID has a value, append that value to the SFH
+            if len(exists) > 0 :
+                loc = exists[0]
+                SFR = SFRs_in_snap[loc]
+                SFH.append(SFR)
+            
+            # if the subID isn't in the catalog, append a NaN
+            else :
+                SFH.append(np.nan)
     
-    return
+    return np.array(SFH)
 
 def history_from_cutout(simName, snapNum, subID, edges) :
     

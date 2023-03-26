@@ -54,9 +54,13 @@ def main(simName='TNG50-1', snapNum=99, hw=0.1, minNum=50, kernel=2) :
     sample.download_all_mpbs(simName=simName, snapNum=snapNum)
     sample.save_mpb_values(simName=simName, snapNum=snapNum)
     
-    # get SFHs from the Donnari/Pillipech catalog for the selected subhalos
+    # save required mpb cutouts for all subhalos
+    cutouts.determine_mpb_cutouts_to_download(simName=simName, snapNum=snapNum)
+    cutouts.download_mpb_cutouts(simName=simName, snapNum=snapNum)
+    
+    # get SFHs from the mpb cutouts for all subhalos
     # appends to simName_snapNum_sample.hdf5
-    sfhs.determine_all_histories_from_catalog(simName=simName, snapNum=snapNum)
+    sfhs.determine_all_histories_from_cutouts(simName=simName, snapNum=snapNum)
     
     # determine the SFMS at each snapshot
     # appends to simName_snapNum_sample.hdf5
@@ -69,10 +73,6 @@ def main(simName='TNG50-1', snapNum=99, hw=0.1, minNum=50, kernel=2) :
         snapNum=snapNum, hw=hw, minNum=minNum)
     quenched.determine_quenched_systems_relative(simName=simName,
         snapNum=snapNum, kernel=kernel)
-    
-    # save required MPB cutouts of quenched and control galaxies
-    cutouts.determine_mpb_cutouts_to_download(simName=simName, snapNum=snapNum)
-    cutouts.download_mpb_cutouts(simName=simName, snapNum=snapNum)
     
     # determine the 'primary_flag' as a function of time for selected subhalos
     # appends to simName_snapNum_quenched_SFHs(t).hdf5

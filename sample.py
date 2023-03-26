@@ -1,16 +1,20 @@
 
+from os.path import exists
 import numpy as np
 
 from astropy.cosmology import Planck15 as cosmo
 from astropy.table import Table, join
+import h5py
+import requests
 
-from core import bsPath, get
+from core import add_dataset, bsPath, get, get_mpb_values,  mpbPath
 
 def build_final_sample(simName='TNG50-1', snapNum=99) :
     
     # define the input directory and file, and the output file
     inDir = bsPath(simName)
-    infile = inDir + '/{}_{}_subhalos_catalog.fits'.format(simName, snapNum)
+    infile = 'F:/{}/{}_{}_subhalos_catalog.fits'.format(
+        simName, simName, snapNum)
     env_file = inDir + '/{}_{}_env.fits'.format(simName, snapNum)
     flags_file = inDir + '/{}_{}_primary-satellite-flags.fits'.format(
         simName, snapNum)
@@ -49,9 +53,10 @@ def determine_environment(simName='TNG50-1', snapNum=99) :
     
     # define the input directory and files, and the output file
     inDir = bsPath(simName)
-    halos_infile = inDir + '/{}_{}_halos_catalog.fits'.format(simName, snapNum)
-    subhalos_infile = inDir + '/{}_{}_subhalos_catalog.fits'.format(
-        simName, snapNum)
+    halos_infile = 'F:/{}/{}_{}_halos_catalog.fits'.format(
+        simName, simName, snapNum)
+    subhalos_infile = 'F:/{}/{}_{}_subhalos_catalog.fits'.format(
+        simName, simName, snapNum)
     outfile = inDir + '/{}_{}_env.fits'.format(simName, snapNum)
     
     # read catalogs
@@ -89,31 +94,62 @@ def determine_environment(simName='TNG50-1', snapNum=99) :
     in_lm_group = set_env(subhalo_length, lm_group_indices, GroupFirstSub, GroupNsubs)
     
     # create masks for different populations in various environments
-    cluster_primary = (in_sample & in_cluster & is_central) # 1 BCG
-    cluster_satellite = (in_sample & in_cluster & ~is_central) # 321 clus sats
-    
-    hm_group_primary = (in_sample & in_hm_group & is_central) # 7 bCGs
-    hm_group_satellite = (in_sample & in_hm_group & ~is_central) # 791 hm grp sats
-    
-    lm_group_primary = (in_sample & in_lm_group & is_central) # 16 massive gals
-    lm_group_satellite = (in_sample & in_lm_group & ~is_central) # 677 lm grp sats
-    
-    field_primary = (in_sample & ~in_cluster & ~in_hm_group & # 4668 field prims
-                     ~in_lm_group & is_central)
-    field_satellite = (in_sample & ~in_cluster & ~in_hm_group & # 1780 field sats
-                       ~in_lm_group & ~is_central)
+    cluster = (in_sample & in_cluster) # 1 BCG, 321 cluster satellites
+    hm_group = (in_sample & in_hm_group) # 7 bCGs, 791 hm group satellites
+    lm_group = (in_sample & in_lm_group) # 16 massive galaxies, 677 lm group satellites
+    field = (in_sample & ~in_cluster & ~in_hm_group & ~in_lm_group)
+    # 4667 field primaries, 1780 field satellites
     
     # create a table for the environmental information
-    env = Table([subhalos['SubhaloID'], cluster_primary, cluster_satellite,
-                 hm_group_primary, hm_group_satellite, lm_group_primary,
-                 lm_group_satellite, field_primary, field_satellite],
-                names=('SubhaloID', 'clus_prim', 'clus_sat', 'hm_grp_prim',
-                       'hm_grp_sat', 'lm_grp_prim', 'lm_grp_sat',
-                       'field_prim', 'field_sat'))
+    env = Table([subhalos['SubhaloID'], cluster, hm_group, lm_group, field],
+                names=('SubhaloID', 'cluster', 'hm_group', 'lm_group', 'field'))
     
     # mask the table to entries in the sample above, and write to file
     env = env[in_sample]
     env.write(outfile)
+    
+    return
+
+def download_all_mpbs(simName='TNG50-1', snapNum=99) :
+    
+    # define the input directory and file, and the output directory and files
+    inDir = bsPath(simName)
+    mpbDir = mpbPath(simName, snapNum)
+    infile = inDir + '/{}_{}_sample(t).hdf5'.format(simName, snapNum)
+    
+    # get the subIDs of subhalos in the sample that we want SFHs for
+    with h5py.File(infile, 'r') as hf :
+        subIDs = hf['SubhaloID'][:]
+    
+    for subID in subIDs :
+        outfile = mpbDir + 'sublink_mpb_{}.hdf5'.format(subID)
+        url = 'http://www.tng-project.org/api/{}/snapshots/{}/subhalos/{}'.format(
+            simName, snapNum, subID)
+        
+        # check if the main progenitor branch file exists
+        if not exists(outfile) :
+            # retrieve information about the galaxy at the redshift of interest
+            sub = get(url)
+            
+            try :
+                # save the main progenitor branch file into the output directory
+                get(sub['trees']['sublink_mpb'], directory=mpbDir)
+            
+            # if the subID mpb file doesn't exist on the server, save critical
+            # information to a similarly formatted hdf5 file
+            except requests.exceptions.HTTPError :
+                with h5py.File(outfile, 'w') as hf :
+                    # we need the center and the stellar halfmassradius to
+                    # compute the SFH
+                    centers = np.array([[sub['pos_x'], sub['pos_y'], sub['pos_z']]])
+                    halfmassradii = np.array([[sub['halfmassrad_gas'],
+                                               sub['halfmassrad_dm'], 0.0, 0.0,
+                                               sub['halfmassrad_stars'],
+                                               sub['halfmassrad_bhs']]])
+                    
+                    # add that information into the outfile
+                    add_dataset(hf, centers, 'SubhaloPos')
+                    add_dataset(hf, halfmassradii, 'SubhaloHalfmassRadType')
     
     return
 
@@ -157,8 +193,73 @@ def primary_and_satellite_flags(simName='TNG50-1', snapNum=99, mass_min=8.0) :
 
 def resave_as_hdf5(simName='TNG50-1', snapNum=99) :
     
+    # define the input directory and file, and the output file
+    inDir = bsPath(simName)
+    infile = inDir + '/{}_{}_sample.fits'.format(simName, snapNum)
+    redshift_file = inDir + '/snapshot_redshifts.fits'
+    outfile = inDir + '/{}_{}_sample(t).hdf5'.format(simName, snapNum)
     
+    # open the table of subhalos in the sample that we want SFHs for
+    subhalos = Table.read(infile)
     
+    # get the redshifts and times (ages of the universe) for all the snapshots
+    redshift_table = Table.read(redshift_file)
+    redshifts = redshift_table['Redshift'].value
+    times = cosmo.age(redshifts).value
+    
+    # check if the outfile exists, and if not, populate key information into it
+    if not exists(outfile) :
+        with h5py.File(outfile, 'w') as hf :
+            # add information about the snapshot redshifts and times, and subIDs
+            add_dataset(hf, np.arange(100), 'snapshots')
+            add_dataset(hf, redshifts, 'redshifts')
+            add_dataset(hf, times, 'times')
+            add_dataset(hf, subhalos['SubhaloID'], 'SubhaloID')
+            add_dataset(hf, subhalos['primary_flag'], 'primary_flag')
+            add_dataset(hf, subhalos['cluster'], 'cluster')
+            add_dataset(hf, subhalos['hm_group'], 'hm_group')
+            add_dataset(hf, subhalos['lm_group'], 'lm_group')
+            add_dataset(hf, subhalos['field'], 'field')
+            
+            # add empty arrays for various quantities to populate later
+            add_dataset(hf, np.full((8260, 100), np.nan), 'subIDs')
+            add_dataset(hf, np.full((8260, 100), np.nan), 'logM')
+            add_dataset(hf, np.full((8260, 100), np.nan), 'Re')
+            add_dataset(hf, np.full((8260, 100, 3), np.nan), 'centers')
+            add_dataset(hf, np.full((8260, 100, 3), np.nan), 'UVK')
+            add_dataset(hf, np.full((8260, 100), np.nan), 'SFH')
+            add_dataset(hf, np.full((8260, 100), np.nan), 'SFMS')
+            add_dataset(hf, np.full((8260, 100), np.nan), 'lo_SFH')
+            add_dataset(hf, np.full((8260, 100), np.nan), 'hi_SFH')
+            add_dataset(hf, np.full(8260, False), 'quenched')
+            add_dataset(hf, np.full(8260, np.nan), 'onset_indices')
+            add_dataset(hf, np.full(8260, np.nan), 'onset_times')
+            add_dataset(hf, np.full(8260, np.nan), 'termination_indices')
+            add_dataset(hf, np.full(8260, np.nan), 'termination_times')
+    
+    return
+
+def save_mpb_values(simName='TNG50-1', snapNum=99) :
+    
+    # define the input directory and file
+    inDir = bsPath(simName)
+    infile = inDir + '/{}_{}_sample(t).hdf5'.format(simName, snapNum)
+    
+    # get the z = 0 subIDs for the galaxies in the sample
+    with h5py.File(infile, 'r') as hf :
+        IDs = hf['SubhaloID'][:]
+    
+    # loop over the galaxies in the sample, getting the relevant mpb information
+    for i, subID in enumerate(IDs) :
+        _, mpb_subIDs, logM, radii, centers, UVK = get_mpb_values(subID)
+        
+        # populate that information into the sample file
+        with h5py.File(infile, 'a') as hf :
+            hf['subIDs'][i, :] = mpb_subIDs
+            hf['logM'][i, :] = logM
+            hf['Re'][i, :] = radii
+            hf['centers'][i, :, :] = centers
+            hf['UVK'][i, :, :] = UVK
     
     return
 
