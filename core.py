@@ -170,7 +170,7 @@ def get_particle_positions(simName, snapNum, snap, subID, center) :
             dy = hf['PartType4']['Coordinates'][:, 1] - center[1]
             dz = hf['PartType4']['Coordinates'][:, 2] - center[2]
             
-            # conert mass units
+            # convert mass units
             masses = hf['PartType4']['GFM_InitialMass'][:]*1e10/cosmo.h
             
             # formation ages are in units of scalefactor
@@ -196,7 +196,7 @@ def get_particles(simName, snapNum, snap, subID, center) :
             dy = hf['PartType4']['Coordinates'][:, 1] - center[1]
             dz = hf['PartType4']['Coordinates'][:, 2] - center[2]
             
-            # conert mass units
+            # convert mass units
             masses = hf['PartType4']['GFM_InitialMass'][:]*1e10/cosmo.h
             
             # formation ages are in units of scalefactor
@@ -235,9 +235,6 @@ def get_quenched_data(simName='TNG50-1', snapNum=99) :
         hm_group = hf['hm_group'][:]
         lm_group = hf['lm_group'][:]
         field = hf['field'][:]
-    
-    # !!! TO DELETE ONCE NEW SFHs HAVE BEEN COMPUTED, AFTER MPB CUTOUTS DOWNLOAD
-    with h5py.File('TNG50-1/TNG50-1_99_sample_SFHs(t)_OLD.hdf5', 'r') as hf :
         SFHs = hf['SFH'][:]
         SFMS = hf['SFMS'][:].astype(bool) # (boolean) SFMS at each snapshot
         lo_SFH = hf['lo_SFH'][:]
@@ -248,56 +245,49 @@ def get_quenched_data(simName='TNG50-1', snapNum=99) :
         iterms = hf['termination_indices'][:].astype(int)
         tterms = hf['termination_times'][:]
     
-    # let's only use quenched galaxies with 8 <= logM <= 11
-    last_logM = logM[:, -1]
-    mask = quenched & (last_logM >= 8) & (last_logM < 11)
+    return (snapshots, redshifts, times, subIDs, logM, Re, centers, UVK, SFHs,
+            SFMS, subIDfinals[quenched], subIDs[quenched], logM[quenched],
+            SFHs[quenched], Re[quenched], centers[quenched], UVK[quenched],
+            primary[quenched], cluster[quenched], hm_group[quenched],
+            lm_group[quenched], field[quenched], lo_SFH[quenched],
+            hi_SFH[quenched], ionsets[quenched], tonsets[quenched],
+            iterms[quenched], tterms[quenched])
+
+def get_rotation_input(simName, snapNum, snap, subID) :
     
-    q_subIDfinals = subIDfinals[mask]
-    q_subIDs = subIDs[mask]
-    q_logM = logM[mask]
-    q_SFHs = SFHs[mask]
-    q_Re = Re[mask]
-    q_centers = centers[mask]
-    q_UVK = UVK[mask]
-    q_primary = primary[mask]
-    q_cluster = cluster[mask]
-    q_hm_group = hm_group[mask]
-    q_lm_group = lm_group[mask]
-    q_field = field[mask]
-    q_lo_SFH = lo_SFH[mask]
-    q_hi_SFH = hi_SFH[mask]
-    q_ionsets = ionsets[mask]
-    q_tonsets = tonsets[mask]
-    q_iterms = iterms[mask]
-    q_tterms = tterms[mask]
+    # define the mpb cutouts directory and file
+    mpbcutoutDir = mpbCutoutPath(simName, snapNum)
+    cutout_file = mpbcutoutDir + 'cutout_{}_{}.hdf5'.format(snap, subID)
     
-    # these galaxies have a termination index before an onset index -> update
-    # onset index to only before termination? this is simple enough
-    bad_mask = (q_iterms - q_ionsets < 0)
+    try :
+        with h5py.File(cutout_file) as hf :
+            gas_coords = hf['PartType0']['Coordinates'][:]
+            gas_sfrs = hf['PartType0']['StarFormationRate'][:]
+            
+            # convert mass units
+            gas_masses = hf['PartType0']['Masses'][:]*1e10/cosmo.h
+    except KeyError :
+        gas_masses, gas_sfrs, gas_coords = None, None, None
     
-    q_subIDfinals = q_subIDfinals[~bad_mask]
-    q_subIDs = q_subIDs[~bad_mask]
-    q_logM = q_logM[~bad_mask]
-    q_SFHs = q_SFHs[~bad_mask]
-    q_Re = q_Re[~bad_mask]
-    q_centers = q_centers[~bad_mask]
-    q_UVK = q_UVK[~bad_mask]
-    q_primary = q_primary[~bad_mask]
-    q_cluster = q_cluster[~bad_mask]
-    q_hm_group = q_hm_group[~bad_mask]
-    q_lm_group = q_lm_group[~bad_mask]
-    q_field = q_field[~bad_mask]
-    q_lo_SFH = q_lo_SFH[~bad_mask]
-    q_hi_SFH = q_hi_SFH[~bad_mask]
-    q_ionsets = q_ionsets[~bad_mask]
-    q_tonsets = q_tonsets[~bad_mask]
-    q_iterms = q_iterms[~bad_mask]
-    q_tterms = q_tterms[~bad_mask]
+    try :
+        with h5py.File(cutout_file) as hf :
+            star_coords = hf['PartType4']['Coordinates'][:]
+            star_ages = hf['PartType4']['GFM_StellarFormationTime'][:]
+            
+            # convert mass units
+            star_gfm = hf['PartType4']['GFM_InitialMass'][:]*1e10/cosmo.h
+            star_masses = hf['PartType4']['Masses'][:]*1e10/cosmo.h
+        
+        # limit particles to those that have positive formation times
+        mask = (star_ages >= 0)
+        
+        star_gfm, star_masses = star_gfm[mask], star_masses[mask]
+        star_coords, star_ages = star_coords[mask], star_ages[mask]
+    except KeyError :
+        star_ages, star_gfm, star_masses, star_coords = None, None, None, None
     
-    return (snapshots, redshifts, times, subIDs, logM, Re, centers, UVK, SFHs, SFMS,
-            q_subIDfinals, q_subIDs, q_logM, q_SFHs, q_Re, q_centers, q_UVK, q_primary,
-            q_cluster, q_hm_group, q_lm_group, q_field, q_lo_SFH, q_hi_SFH,
-            q_ionsets, q_tonsets, q_iterms, q_tterms)
+    return (gas_masses, gas_sfrs, gas_coords, star_ages, star_gfm,
+            star_masses, star_coords)
 
 def get_sf_particle_positions(ages, masses, dx, dy, dz, time, delta_t=100*u.Myr) :
     
