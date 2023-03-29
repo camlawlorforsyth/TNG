@@ -31,7 +31,7 @@ def determine_mpb_cutouts_to_download(simName='TNG50-1', snapNum=99) :
     
     return
 
-def download_mpb_cutouts(simName='TNG50-1', snapNum=99) :
+def download_mpb_cutouts(simName='TNG50-1', snapNum=99, gas=False) :
     
     # define the input directory and file, and output directory for the mpb cutouts
     inDir = bsPath(simName)
@@ -44,7 +44,11 @@ def download_mpb_cutouts(simName='TNG50-1', snapNum=99) :
         list_of_subIDs = hf['list_of_subIDs'][:]
     
     # define the parameters that are requested for each particle in the cutout
-    params = {'stars':'Coordinates,GFM_InitialMass,GFM_StellarFormationTime'}
+    if gas :
+        params = {'stars':'GFM_InitialMass,Masses,GFM_StellarFormationTime,Coordinates',
+                  'gas':'Masses,StarFormationRate,Coordinates'}
+    else :
+        params = {'stars':'Coordinates,GFM_InitialMass,GFM_StellarFormationTime'}
     
     # loop over all the required mpb cutouts
     for snap, subID in zip(list_of_snaps, list_of_subIDs) :
@@ -55,9 +59,9 @@ def download_mpb_cutouts(simName='TNG50-1', snapNum=99) :
         
         # save the cutout file into the output directory if it doesn't exist
         filename = 'cutout_{}_{}.hdf5'.format(snap, subID)
-        if not exists(outDir + filename) :
-            get(url + '/cutout.hdf5', directory=outDir, params=params,
-                filename=filename)
+        # if not exists(outDir + filename) :
+        get(url + '/cutout.hdf5', directory=outDir, params=params,
+            filename=filename)
         
         print('{} done'.format(filename))
     

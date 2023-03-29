@@ -59,16 +59,17 @@ def main(simName='TNG50-1', snapNum=99, hw=0.1, minNum=50, kernel=2) :
     cutouts.download_mpb_cutouts(simName=simName, snapNum=snapNum)
     
     # get SFHs from the mpb cutouts for all subhalos
-    # appends to simName_snapNum_sample.hdf5
+    # appends to simName_snapNum_sample(t).hdf5
     sfhs.determine_all_histories_from_cutouts(simName=simName, snapNum=snapNum)
+    sfhs.check_for_nan_histories(simName=simName, snapNum=snapNum)
     
     # determine the SFMS at each snapshot
-    # appends to simName_snapNum_sample.hdf5
+    # appends to simName_snapNum_sample(t).hdf5
     sfms.compute_SFMS_percentile_limits(simName=simName, snapNum=snapNum)
     sfms.determine_SFMS(simName=simName, snapNum=snapNum)
     
     # determine which systems are quenched by our definition
-    # appends to simName_snapNum_sample.hdf5
+    # appends to simName_snapNum_sample(t).hdf5
     quenched.determine_comparison_systems_relative(simName=simName,
         snapNum=snapNum, hw=hw, minNum=minNum)
     quenched.determine_quenched_systems_relative(simName=simName,

@@ -236,6 +236,7 @@ def resave_as_hdf5(simName='TNG50-1', snapNum=99) :
             add_dataset(hf, np.full(8260, np.nan), 'onset_times')
             add_dataset(hf, np.full(8260, np.nan), 'termination_indices')
             add_dataset(hf, np.full(8260, np.nan), 'termination_times')
+            add_dataset(hf, np.full(8260, False), 'exclude')
     
     return
 
