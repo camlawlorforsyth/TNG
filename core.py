@@ -260,7 +260,7 @@ def get_rotation_input(simName, snapNum, snap, subID) :
     cutout_file = mpbcutoutDir + 'cutout_{}_{}.hdf5'.format(snap, subID)
     
     try :
-        with h5py.File(cutout_file) as hf :
+        with h5py.File(cutout_file, 'r') as hf :
             gas_coords = hf['PartType0']['Coordinates'][:]
             gas_sfrs = hf['PartType0']['StarFormationRate'][:]
             
@@ -270,7 +270,7 @@ def get_rotation_input(simName, snapNum, snap, subID) :
         gas_masses, gas_sfrs, gas_coords = None, None, None
     
     try :
-        with h5py.File(cutout_file) as hf :
+        with h5py.File(cutout_file, 'r') as hf :
             star_coords = hf['PartType4']['Coordinates'][:]
             star_ages = hf['PartType4']['GFM_StellarFormationTime'][:]
             
@@ -286,8 +286,8 @@ def get_rotation_input(simName, snapNum, snap, subID) :
     except KeyError :
         star_ages, star_gfm, star_masses, star_coords = None, None, None, None
     
-    return (gas_masses, gas_sfrs, gas_coords, star_ages, star_gfm,
-            star_masses, star_coords)
+    return (gas_masses, gas_sfrs, gas_coords, star_ages, star_gfm, star_masses,
+            star_coords)
 
 def get_sf_particle_positions(ages, masses, dx, dy, dz, time, delta_t=100*u.Myr) :
     

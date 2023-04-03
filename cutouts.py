@@ -59,9 +59,9 @@ def download_mpb_cutouts(simName='TNG50-1', snapNum=99, gas=False) :
         
         # save the cutout file into the output directory if it doesn't exist
         filename = 'cutout_{}_{}.hdf5'.format(snap, subID)
-        # if not exists(outDir + filename) :
-        get(url + '/cutout.hdf5', directory=outDir, params=params,
-            filename=filename)
+        if not exists(outDir + filename) :
+            get(url + '/cutout.hdf5', directory=outDir, params=params,
+                filename=filename)
         
         print('{} done'.format(filename))
     
