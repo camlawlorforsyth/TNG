@@ -47,6 +47,7 @@ def calculate_MoI_tensor(gas_masses, gas_sfrs, gas_coords, star_ages,
     return I_tensor
 
 def radial_distances(center, coordinates) :
+    
     dx = coordinates[:, 0] - center[0]
     dy = coordinates[:, 1] - center[1]
     dz = coordinates[:, 2] - center[2]

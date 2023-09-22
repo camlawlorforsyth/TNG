@@ -177,7 +177,7 @@ def get_particle_positions(simName, snapNum, snap, subID, center) :
             formation_ages = hf['PartType4']['GFM_StellarFormationTime'][:]
         
         # limit particles to those that have positive formation times
-        mask = (formation_ages >= 0)
+        mask = (formation_ages > 0)
         
         return formation_ages[mask], masses[mask], dx[mask], dy[mask], dz[mask]
     
@@ -206,7 +206,7 @@ def get_particles(simName, snapNum, snap, subID, center) :
         rs = np.sqrt(np.square(dx) + np.square(dy) + np.square(dz))
         
         # limit particles to those that have positive formation times
-        mask = (formation_ages >= 0)
+        mask = (formation_ages > 0)
         
         return formation_ages[mask], masses[mask], rs[mask]
     
@@ -279,7 +279,7 @@ def get_rotation_input(simName, snapNum, snap, subID) :
             star_masses = hf['PartType4']['Masses'][:]*1e10/cosmo.h
         
         # limit particles to those that have positive formation times
-        mask = (star_ages >= 0)
+        mask = (star_ages > 0)
         
         star_gfm, star_masses = star_gfm[mask], star_masses[mask]
         star_coords, star_ages = star_coords[mask], star_ages[mask]
