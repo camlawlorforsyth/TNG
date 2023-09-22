@@ -47,43 +47,6 @@ def determine_SFH_along_mpb(simName, snapNum, times, subID, delta_t=100*u.Myr) :
     
     return SFH
 
-def determine_SFH_from_catalog(simName, snapNum, subID, times, delta_t=100) :
-    
-    catalog_file = 'TNG50-1/output/Donnari_Pillepich_star_formation_rates.hdf5'
-    
-    # get the mpb snapshot numbers, subIDs, stellar halfmassradii, and
-    # galaxy centers
-    snapNums, mpb_subIDs, _, _ = get_mpb_radii_and_centers(simName, snapNum, subID)
-    
-    SFH = []
-    for snap, mpb_subID, time in zip(snapNums, mpb_subIDs, times) :
-        if snap <= 1 :
-            SFH.append(np.nan)
-        
-        # the catalog only exists for snapshots above snapshot 1
-        if snap >= 2 :
-            
-            # get the relevant SFRs for all subIDs in the snapshot
-            with h5py.File(catalog_file, 'r') as hf :
-                subIDs_in_snap = hf['Snapshot_{}/SubfindID'.format(snap)][:]
-                SFRs_in_snap = hf['Snapshot_{}/SFR_MsunPerYrs_in_InRad_{}Myrs'.format(
-                    snap, delta_t)][:]
-            
-            # check to see if the subID of interest has a value in the catalog
-            exists = np.where(subIDs_in_snap == mpb_subID)[0]
-            
-            # if the subID has a value, append that value to the SFH
-            if len(exists) > 0 :
-                loc = exists[0]
-                SFR = SFRs_in_snap[loc]
-                SFH.append(SFR)
-            
-            # if the subID isn't in the catalog, append a NaN
-            else :
-                SFH.append(np.nan)
-    
-    return SFH
-
 def determine_SFH_from_mpb(simName, snapNum, subID) :
     
     # define the input directory and the input file for the MPB SFHs
@@ -113,10 +76,10 @@ def plot_quenched_systems_with_mpb(simName, snapNum) :
     
     test_IDs = [
         # satellites
-        14, 41, 63878, 167398, 184946, 220605, 324126,
+        14 #, 41, 63878, 167398, 184946, 220605, 324126,
         # primaries
-        545003, 547545, 548151, 556699, 564498,
-        592021, 604066, 606223, 607654, 623367
+        # 545003, 547545, 548151, 556699, 564498,
+        # 592021, 604066, 606223, 607654, 623367
         ]
     locs = []
     for ID in test_IDs :
@@ -158,6 +121,11 @@ def plot_quenched_systems_with_mpb(simName, snapNum) :
         mpb_SFH[100-len(mpb_SFRs):] = mpb_SFRs
         mpb_sm = gaussian_filter1d(mpb_SFH, 2)
         
+        print(avg_sm) # blue
+        print()
+        print(catalog_sm) # green
+        
+        '''
         # now plot the curves without the upper and lower limits
         outfile = 'output/quenched_SFHs(t)_comparison/quenched_SFH_subID_{}.png'.format(subID)
         plt.plot_simple_multi_with_times(
@@ -173,6 +141,9 @@ def plot_quenched_systems_with_mpb(simName, snapNum) :
             [0.2, 1, 0.2, 1, 0.3, 1, 0.2, 1],
             tsat, tonset, tterm,
             xlabel=r'$t$ (Gyr)', ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
-            xmin=0, xmax=14, scale='linear', save=True, outfile=outfile, loc=0)
+            xmin=0, xmax=14, scale='linear', save=False, outfile=outfile, loc=0)
+        '''
     
     return
+
+

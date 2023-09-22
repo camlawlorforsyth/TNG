@@ -8,20 +8,8 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import savgol_filter
 
 from core import (add_dataset, bsPath, determine_mass_bin_indices,
-                  get_mpb_radii_and_centers, get_particles, get_sf_particles)
+                  get_particles, get_sf_particles)
 import plotting as plt
-
-def compute_halfmass_radius(masses, rs) :
-    
-    if (len(masses) == 0) and (len(rs) == 0) :
-        halfmass_radius = np.nan
-    else :
-        sort_order = np.argsort(rs)
-        masses = masses[sort_order]
-        rs = rs[sort_order]
-        halfmass_radius = np.interp(0.5*np.sum(masses), np.cumsum(masses), rs)
-    
-    return halfmass_radius
 
 def compute_sf_rms(rs) :
     
@@ -31,6 +19,34 @@ def compute_sf_rms(rs) :
         rms = np.sqrt(np.mean(np.square(rs)))
     
     return rms
+
+def determine_zeta(simName, snapNum, time, snap, mpbsubID, center,
+                   delta_t=100*u.Myr) :
+    
+    # get all particles
+    ages, masses, rs = get_particles(simName, snapNum, snap, mpbsubID,
+                                     center)
+    
+    # only proceed if the ages, masses, and distances are intact
+    if (ages is not None) and (masses is not None) and (rs is not None) :
+        
+        # find the stellar half mass radius for all particles
+        stellar_halfmass_radius = compute_halfmass_radius(masses, rs)
+        
+        # get the SF particles
+        _, sf_masses, sf_rs = get_sf_particles(ages, masses, rs, time,
+                                               delta_t=delta_t)
+        
+        # find the stellar half mass radius for SF particles
+        sf_halfmass_radius = compute_halfmass_radius(sf_masses, sf_rs)
+        
+        # now compute the ratio of the half mass radius of the SF
+        # particles to the half mass radius of all particles
+        zeta = sf_halfmass_radius/stellar_halfmass_radius
+    else :
+        zeta = np.nan
+    
+    return zeta
 
 def determine_zeta_fxn(simName, snapNum, times, subID, delta_t=100*u.Myr) :
     
@@ -47,29 +63,9 @@ def determine_zeta_fxn(simName, snapNum, times, subID, delta_t=100*u.Myr) :
     zetas = []
     for time, snap, mpbsubID, center in zip(ts, snapNums, mpb_subIDs, centers) :
         
-        # get all particles
-        ages, masses, rs = get_particles(simName, snapNum, snap, mpbsubID,
-                                         center)
-        
-        # only proceed if the ages, masses, and distances are intact
-        if (ages is not None) and (masses is not None) and (rs is not None) :
-            
-            # find the stellar half mass radius for all particles
-            stellar_halfmass_radius = compute_halfmass_radius(masses, rs)
-            
-            # get the SF particles
-            _, sf_masses, sf_rs = get_sf_particles(ages, masses, rs, time,
-                                                   delta_t=delta_t)
-            
-            # find the stellar half mass radius for SF particles
-            sf_halfmass_radius = compute_halfmass_radius(sf_masses, sf_rs)
-            
-            # now compute the ratio of the half mass radius of the SF
-            # particles to the half mass radius of all particles
-            zeta = sf_halfmass_radius/stellar_halfmass_radius
-            zetas.append(zeta)
-        else :
-            zetas.append(np.nan)
+        zeta = determine_zeta(simName, snapNum, time, snap, mpbsubID, center,
+                              delta_t=delta_t)
+        zetas.append(zeta)
     
     return ts, zetas
 

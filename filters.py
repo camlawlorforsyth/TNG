@@ -3,10 +3,117 @@ import numpy as np
 
 from astropy.table import Table
 import astropy.units as u
-from pandeia.engine.instrument_factory import InstrumentFactory
-import stsynphot as stsyn
+# from pandeia.engine.instrument_factory import InstrumentFactory
+# import stsynphot as stsyn
 
 import plotting as plt
+
+def calculate_pivots_and_fwhm() :
+    
+    filters = ['castor_uv',   'castor_u',    'castor_g',
+               'hst_f218w',   'hst_f225w',   'hst_f275w',   'hst_f336w',
+               'hst_f390w',   'hst_f438w',   'hst_f435w',   'hst_f475w',
+               'hst_f555w',   'hst_f606w',   'hst_f625w',   'hst_f775w',
+               'hst_f814w',   'hst_f850lp',  'hst_f105w',   'hst_f110w',
+               'hst_f125w',   'hst_f140w',   'hst_f160w',
+               'jwst_f070w',  'jwst_f090w',  'jwst_f115w',  'jwst_f150w',
+               'jwst_f200w',  'jwst_f277w',  'jwst_f356w',  'jwst_f410m',
+               'jwst_f444w',  'jwst_f560w',  'jwst_f770w',  'jwst_f1000w',
+               'jwst_f1130w', 'jwst_f1280w', 'jwst_f1500w', 'jwst_f1800w',
+               'jwst_f2100w', 'jwst_f2550w',
+               'roman_f062',  'roman_f087',  'roman_f106',  'roman_f129',
+               'roman_f146',  'roman_f158',  'roman_f184',  'roman_f213']
+    
+    dictionary = {}
+    for filt in filters :
+        dictionary[filt] = {}
+        
+        # get the wavelength and transmission array from the file, and populate
+        file = 'passbands/{}.txt'.format(filt)
+        array = np.genfromtxt(file, skip_header=1)
+        waves, transmission = array[:, 0], array[:, 1]
+        
+        # calculate the pivot wavelength, following Eq. A11 of Tokunagea & Vacca 2005
+        pivot = np.sqrt(np.trapz(transmission*waves, x=waves)/
+                        np.trapz(transmission/waves, x=waves))
+        dictionary[filt]['pivot'] = pivot*u.um
+        
+        # prepare the transmission array for calculating the FWHM
+        trans = transmission/np.max(transmission)
+        good = np.where(trans - 0.5 >= 0.0)[0]
+        start, end = good[0], good[-1]
+        
+        # ensure that "start" and "end" are the closest indices
+        start = start - 10 + np.abs(trans[start-10:start+10] - 0.5).argmin()
+        end = end - 10 + np.abs(trans[end-10:end+10] - 0.5).argmin()
+        
+        # calculate the FWHM
+        fwhm = waves[end] - waves[start]
+        dictionary[filt]['fwhm'] = fwhm*u.um
+    
+    return dictionary
+
+def calculate_psfs() :
+    
+    dictionary = calculate_pivots_and_fwhm()
+    
+    for filt in dictionary.keys() :
+        # CASTOR PSF FWHMs
+        if 'castor' in filt :
+            dictionary[filt]['psf'] = 0.15*u.arcsec
+        
+        # WFC3/UVIS PSF FWHMs
+        elif filt in ['hst_f218w', 'hst_f225w', 'hst_f275w', 'hst_f336w',
+                      'hst_f390w', 'hst_f438w'] :
+            xp = np.array([200, 300, 400, 500, 600, 700, 800, 900, 1000,
+                           1100])*u.nm
+            fp = np.array([2.069, 1.870, 1.738, 1.675, 1.681, 1.746, 1.844,
+                           1.960, 2.091, 2.236])*u.pix
+            psf = np.interp(dictionary[filt]['pivot'], xp.to(u.um),
+                            fp*0.0395*u.arcsec/u.pix)
+            dictionary[filt]['psf'] = psf
+        
+        # ACS PSF FWHMs -> use UVIS PSFs as no definitive ACS PSFs have been found
+        elif filt in ['hst_f435w', 'hst_f475w', 'hst_f555w', 'hst_f606w',
+                      'hst_f625w', 'hst_f775w', 'hst_f814w', 'hst_f850lp'] :
+            xp = np.array([200, 300, 400, 500, 600, 700, 800, 900, 1000,
+                           1100])*u.nm
+            fp = np.array([2.069, 1.870, 1.738, 1.675, 1.681, 1.746, 1.844,
+                           1.960, 2.091, 2.236])*u.pix
+            psf = np.interp(dictionary[filt]['pivot'], xp.to(u.um),
+                            fp*0.05*u.arcsec/u.pix)
+            dictionary[filt]['psf'] = psf
+        
+        # WFC3/IR PSF FWHMs
+        elif filt in ['hst_f105w', 'hst_f110w', 'hst_f125w', 'hst_f140w',
+                      'hst_f160w'] :
+            xp = np.array([800, 900, 100, 1100, 1200, 1300, 1400, 1500, 1600,
+                           1700])*u.nm
+            fp = np.array([0.971, 0.986, 1.001, 1.019, 1.040, 1.067, 1.100,
+                           1.136, 1.176, 1.219])*u.pix
+            psf = np.interp(dictionary[filt]['pivot'], xp.to(u.um),
+                            fp*0.128*u.arcsec/u.pix)
+            dictionary[filt]['psf'] = psf
+    
+    # JWST PSF FWHMs
+    jwst_filts = [key for key in dictionary.keys() if 'jwst' in key]
+    jwst_scales = np.array([0.031, 0.031, 0.031, 0.031, 0.031, 0.063, 0.063,
+                            0.063, 0.063, 0.11, 0.11, 0.11, 0.11, 0.11, 0.11,
+                            0.11, 0.11, 0.11])*u.arcsec/u.pix
+    jwst_psfs = np.array([0.935, 1.065, 1.290, 1.613, 2.129, 1.460, 1.841,
+                          2.175, 2.302, 1.882, 2.445, 2.982, 3.409, 3.818,
+                          4.436, 5.373, 6.127, 7.300])*u.pix
+    for filt, psf in zip(jwst_filts, jwst_scales*jwst_psfs) :
+        dictionary[filt]['psf'] = psf
+    
+    # Roman PSF FWHMs
+    roman_filts = [key for key in dictionary.keys() if 'roman' in key]
+    roman_psfs = np.array([0.058, 0.073, 0.087, 0.105, 0.105, 0.127, 0.151,
+                           0.175])*u.arcsec
+    for filt, psf in zip(roman_filts, roman_psfs) :
+        dictionary[filt]['psf'] = psf
+    
+    return dictionary
 
 def compare_nircam() :
 
@@ -52,6 +159,28 @@ def check_roman() :
         ['', '', '', '', '', '', '', '', ''],
         ['-', '-', '-', '-', '--', '-', '-', '-', '-'], np.ones(9),
         xmin=0.4, xmax=2.45, ymin=0, scale='linear')
+    
+    return
+
+def prepare_throughputs_for_skirt() :
+    
+    filters = ['hst_f218w',   'castor_uv',   'hst_f225w',   'hst_f275w',
+               'hst_f336w',   'castor_u',    'hst_f390w',   'hst_f438w',
+               'hst_f435w',   'hst_f475w',   'castor_g',    'hst_f555w',
+               'hst_f606w',   'roman_f062',  'hst_f625w',   'jwst_f070w',
+               'hst_f775w',   'hst_f814w',   'roman_f087',  'jwst_f090w',
+               'hst_f850lp',  'hst_f105w',   'roman_f106',  'hst_f110w',
+               'jwst_f115w',  'hst_f125w',   'roman_f129',  'hst_f140w',
+               'roman_f146',  'jwst_f150w',  'hst_f160w',   'roman_f158',
+               'roman_f184',  'jwst_f200w',  'roman_f213',  'jwst_f277w',
+               'jwst_f356w',  'jwst_f410m',  'jwst_f444w',  'jwst_f560w',
+               'jwst_f770w',  'jwst_f1000w', 'jwst_f1130w', 'jwst_f1280w',
+               'jwst_f1500w', 'jwst_f1800w', 'jwst_f2100w', 'jwst_f2550w']
+    
+    for filt in filters :
+        array = np.genfromtxt('passbands/{}.txt'.format(filt))
+        final = np.array([array[:, 0]*1e4, array[:, 1]]).T
+        np.savetxt('SKIRT/passbands/{}.txt'.format(filt), final)
     
     return
 
@@ -288,132 +417,3 @@ def throughputs_roman() :
                    header='WAVELENGTH THROUGHPUT')
     
     return
-
-def prepare_throughputs_for_skirt() :
-    
-    filters = ['hst_f218w',   'castor_uv',   'hst_f225w',   'hst_f275w',
-               'hst_f336w',   'castor_u',    'hst_f390w',   'hst_f438w',
-               'hst_f435w',   'hst_f475w',   'castor_g',    'hst_f555w',
-               'hst_f606w',   'roman_f062',  'hst_f625w',   'jwst_f070w',
-               'hst_f775w',   'hst_f814w',   'roman_f087',  'jwst_f090w',
-               'hst_f850lp',  'hst_f105w',   'roman_f106',  'hst_f110w',
-               'jwst_f115w',  'hst_f125w',   'roman_f129',  'hst_f140w',
-               'roman_f146',  'jwst_f150w',  'hst_f160w',   'roman_f158',
-               'roman_f184',  'jwst_f200w',  'roman_f213',  'jwst_f277w',
-               'jwst_f356w',  'jwst_f410m',  'jwst_f444w',  'jwst_f560w',
-               'jwst_f770w',  'jwst_f1000w', 'jwst_f1130w', 'jwst_f1280w',
-               'jwst_f1500w', 'jwst_f1800w', 'jwst_f2100w', 'jwst_f2550w']
-    
-    for filt in filters :
-        array = np.genfromtxt('passbands/{}.txt'.format(filt))
-        final = np.array([array[:, 0]*1e4, array[:, 1]]).T
-        np.savetxt('SKIRT/passbands/{}.txt'.format(filt), final)
-    
-    return
-
-def calculate_pivots_and_fwhm() :
-    
-    filters = ['castor_uv',   'castor_u',    'castor_g',
-               'hst_f218w',   'hst_f225w',   'hst_f275w',   'hst_f336w',
-               'hst_f390w',   'hst_f438w',   'hst_f435w',   'hst_f475w',
-               'hst_f555w',   'hst_f606w',   'hst_f625w',   'hst_f775w',
-               'hst_f814w',   'hst_f850lp',  'hst_f105w',   'hst_f110w',
-               'hst_f125w',   'hst_f140w',   'hst_f160w',
-               'jwst_f070w',  'jwst_f090w',  'jwst_f115w',  'jwst_f150w',
-               'jwst_f200w',  'jwst_f277w',  'jwst_f356w',  'jwst_f410m',
-               'jwst_f444w',  'jwst_f560w',  'jwst_f770w',  'jwst_f1000w',
-               'jwst_f1130w', 'jwst_f1280w', 'jwst_f1500w', 'jwst_f1800w',
-               'jwst_f2100w', 'jwst_f2550w',
-               'roman_f062',  'roman_f087',  'roman_f106',  'roman_f129',
-               'roman_f146',  'roman_f158',  'roman_f184',  'roman_f213']
-
-    dictionary = {}
-    for filt in filters :
-        dictionary[filt] = {}
-        
-        # get the wavelength and transmission array from the file, and populate
-        file = 'passbands/{}.txt'.format(filt)
-        array = np.genfromtxt(file, skip_header=1)
-        waves, transmission = array[:, 0], array[:, 1]
-        
-        # calculate the pivot wavelength, following Eq. A11 of Tokunagea & Vacca 2005
-        pivot = np.sqrt(np.trapz(transmission*waves, x=waves)/
-                        np.trapz(transmission/waves, x=waves))
-        dictionary[filt]['pivot'] = pivot*u.um
-        
-        # prepare the transmission array for calculating the FWHM
-        trans = transmission/np.max(transmission)
-        good = np.where(trans - 0.5 >= 0.0)[0]
-        start, end = good[0], good[-1]
-        
-        # ensure that "start" and "end" are the the closest indices
-        start = start - 10 + np.abs(trans[start-10:start+10] - 0.5).argmin()
-        end = end - 10 + np.abs(trans[end-10:end+10] - 0.5).argmin()
-        
-        # calculate the FWHM
-        fwhm = waves[end] - waves[start]
-        dictionary[filt]['fwhm'] = fwhm*u.um
-    
-    return dictionary
-
-def calculate_psfs() :
-    
-    dictionary = calculate_pivots_and_fwhm()
-    
-    for filt in dictionary.keys() :
-        # CASTOR PSF FWHMs
-        if 'castor' in filt :
-            dictionary[filt]['psf'] = 0.15*u.arcsec
-        
-        # WFC3/UVIS PSF FWHMs
-        elif filt in ['hst_f218w', 'hst_f225w', 'hst_f275w', 'hst_f336w',
-                      'hst_f390w', 'hst_f438w'] :
-            xp = np.array([200, 300, 400, 500, 600, 700, 800, 900, 1000,
-                           1100])*u.nm
-            fp = np.array([2.069, 1.870, 1.738, 1.675, 1.681, 1.746, 1.844,
-                           1.960, 2.091, 2.236])*u.pix
-            psf = np.interp(dictionary[filt]['pivot'], xp.to(u.um),
-                            fp*0.0395*u.arcsec/u.pix)
-            dictionary[filt]['psf'] = psf
-        
-        # ACS PSF FWHMs -> use UVIS PSFs as no definitive ACS PSFs have been found
-        elif filt in ['hst_f435w', 'hst_f475w', 'hst_f555w', 'hst_f606w',
-                      'hst_f625w', 'hst_f775w', 'hst_f814w', 'hst_f850lp'] :
-            xp = np.array([200, 300, 400, 500, 600, 700, 800, 900, 1000,
-                           1100])*u.nm
-            fp = np.array([2.069, 1.870, 1.738, 1.675, 1.681, 1.746, 1.844,
-                           1.960, 2.091, 2.236])*u.pix
-            psf = np.interp(dictionary[filt]['pivot'], xp.to(u.um),
-                            fp*0.05*u.arcsec/u.pix)
-            dictionary[filt]['psf'] = psf
-        
-        # WFC3/IR PSF FWHMs
-        elif filt in ['hst_f105w', 'hst_f110w', 'hst_f125w', 'hst_f140w',
-                      'hst_f160w'] :
-            xp = np.array([800, 900, 100, 1100, 1200, 1300, 1400, 1500, 1600,
-                           1700])*u.nm
-            fp = np.array([0.971, 0.986, 1.001, 1.019, 1.040, 1.067, 1.100,
-                           1.136, 1.176, 1.219])*u.pix
-            psf = np.interp(dictionary[filt]['pivot'], xp.to(u.um),
-                            fp*0.128*u.arcsec/u.pix)
-            dictionary[filt]['psf'] = psf
-    
-    # JWST PSF FWHMs
-    jwst_filts = [key for key in dictionary.keys() if 'jwst' in key]
-    jwst_scales = np.array([0.031, 0.031, 0.031, 0.031, 0.031, 0.063, 0.063,
-                            0.063, 0.063, 0.11, 0.11, 0.11, 0.11, 0.11, 0.11,
-                            0.11, 0.11, 0.11])*u.arcsec/u.pix
-    jwst_psfs = np.array([0.935, 1.065, 1.290, 1.613, 2.129, 1.460, 1.841,
-                          2.175, 2.302, 1.882, 2.445, 2.982, 3.409, 3.818,
-                          4.436, 5.373, 6.127, 7.300])*u.pix
-    for filt, psf in zip(jwst_filts, jwst_scales*jwst_psfs) :
-        dictionary[filt]['psf'] = psf
-    
-    # Roman PSF FWHMs
-    roman_filts = [key for key in dictionary.keys() if 'roman' in key]
-    roman_psfs = np.array([0.058, 0.073, 0.087, 0.105, 0.105, 0.127, 0.151,
-                           0.175])*u.arcsec
-    for filt, psf in zip(roman_filts, roman_psfs) :
-        dictionary[filt]['psf'] = psf
-    
-    return dictionary

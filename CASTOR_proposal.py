@@ -10,29 +10,135 @@ from scipy.ndimage import gaussian_filter1d, gaussian_filter
 from pypdf import PdfWriter
 
 from core import (add_dataset, bsPath, determine_mass_bin_indices, find_nearest,
-                  get, get_mpb_values, get_particles, get_particle_positions,
-                  get_quenched_data, get_rotation_input,
+                  get_particles, get_quenched_data, get_rotation_input,
                   get_sf_particles, get_sf_particle_positions)
 import plotting as plt
 from projection import calculate_MoI_tensor, rotation_matrix_from_MoI_tensor
+from slack import send_message
 
 import warnings
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
-# from slack import send_message
+def calculate_all_radial_profiles(simName='TNG50-1', snapNum=99,
+                                  delta_t=100*u.Myr) :
+    
+    # define the input and output files
+    inDir = bsPath(simName)
+    infile = inDir + '/{}_{}_sample(t).hdf5'.format(simName, snapNum)
+    outfile = inDir + '/{}_{}_profiles(t).hdf5'.format(simName, snapNum)
+    
+    # get relevant information for the general sample, and quenched systems
+    with h5py.File(infile, 'r') as hf :
+        snapshots = hf['snapshots'][:]
+        times = hf['times'][:]
+        subIDs = hf['subIDs'][:].astype(int)
+        Re = hf['Re'][:]
+        centers = hf['centers'][:]
+        SFMS = hf['SFMS'][:].astype(bool) # (boolean) SFMS at each snapshot
+        quenched = hf['quenched'][:]
+        ionsets = hf['onset_indices'][:].astype(int)
+        iterms = hf['termination_indices'][:].astype(int)
+    
+    # find the total number of radial profiles that will be calculated
+    # print(np.sum(SFMS) + np.sum((iterms + 1 - ionsets)*quenched)) # 482308
+    
+    # write an empty file which will hold all the computed radial profiles
+    if not exists(outfile) :
+        
+        # define the edges and center points of the radial bins
+        edges = np.linspace(0, 5, 21)
+        mids = []
+        for start, end in zip(edges, edges[1:]) :
+            mids.append(0.5*(start + end))
+        
+        # populate the helper file with empty arrays to be populated later
+        full_vals = np.full((8260, 100, len(mids)), np.nan)
+        with h5py.File(outfile, 'w') as hf :
+            add_dataset(hf, edges, 'edges')
+            add_dataset(hf, np.array(mids), 'mids')
+            add_dataset(hf, full_vals, 'SFR_profiles')
+            add_dataset(hf, full_vals, 'mass_profiles')
+            add_dataset(hf, full_vals, 'area_profiles')
+            add_dataset(hf, full_vals, 'nParticles')
+            add_dataset(hf, full_vals, 'nSFparticles')
+    
+    with h5py.File(outfile, 'r') as hf :
+        edges = hf['edges'][:]
+        length = len(hf['mids'][:])
+        SFR_profiles = hf['SFR_profiles'][:]
+        mass_profiles = hf['mass_profiles'][:]
+        area_profiles = hf['area_profiles'][:]
+        nParticles = hf['nParticles'][:]
+        nSFparticles = hf['nSFparticles'][:]
+    
+    count = 1
+    # loop over the galaxies in the sample, determining the radial profiles
+    # for the SFMS galaxies at all snapshots, and for the quenched galaxies
+    # between the onset and termination of quenching, inclusive
+    for i, (mpb_subIDs, mpb_Res, mpb_centers, mpb_SFMS, use, ionset_val,
+            iterm_val) in enumerate(
+                zip(subIDs, Re, centers, SFMS, quenched, ionsets, iterms)) :
+        
+        for j, (snap, time, subID, radius, center, SFMS_val) in enumerate(
+                zip(snapshots, times, mpb_subIDs, mpb_Res, mpb_centers, mpb_SFMS)) :
+            
+            # don't replace existing values
+            if (np.all(np.isnan(SFR_profiles[i, j, :])) and
+                np.all(np.isnan(mass_profiles[i, j, :])) and
+                np.all(np.isnan(area_profiles[i, j, :])) and
+                np.all(np.isnan(nParticles[i, j, :])) and
+                np.all(np.isnan(nSFparticles[i, j, :]))) :
+                
+                # if the galaxy is on the SFMS at the snapshot then proceed
+                if SFMS_val :
+                    (SFR_profile, mass_profile, area_profile, nParticle_profile,
+                     nSFparticle_profile) = determine_radial_profiles(simName,
+                        snapNum, snap, time, subID, radius, center, edges,
+                        length, delta_t=delta_t)
+                    
+                    with h5py.File(outfile, 'a') as hf :
+                        hf['SFR_profiles'][i, j, :] = SFR_profile
+                        hf['mass_profiles'][i, j, :] = mass_profile
+                        hf['area_profiles'][i, j, :] = area_profile
+                        hf['nParticles'][i, j, :] = nParticle_profile
+                        hf['nSFparticles'][i, j, :] = nSFparticle_profile
+                
+                # if the galaxy is a quenched galaxy and the snapshot is between
+                # the onset and termination of quenching, inclusive
+                if use and (ionset_val <= snap <= iterm_val) :
+                    (SFR_profile, mass_profile, area_profile, nParticle_profile,
+                     nSFparticle_profile) = determine_radial_profiles(simName,
+                        snapNum, snap, time, subID, radius, center, edges,
+                        length, delta_t=delta_t)
+                    
+                    with h5py.File(outfile, 'a') as hf :
+                        hf['SFR_profiles'][i, j, :] = SFR_profile
+                        hf['mass_profiles'][i, j, :] = mass_profile
+                        hf['area_profiles'][i, j, :] = area_profile
+                        hf['nParticles'][i, j, :] = nParticle_profile
+                        hf['nSFparticles'][i, j, :] = nSFparticle_profile
+            
+            # print to console for visual inspection, after 10% of every snapshot
+            if count % 826 == 0.0 :
+                print('{}/826000 done'.format(count))
+            
+            # send a message for remote inspection, after 10% increments
+            if count % 82600 == 0.0 :
+                msg = '{}/826000 done'.format(count)
+                send_message(msg)
+            
+            # iterate the counter
+            count += 1
+    
+    return
 
-def comp_prop_plots_for_sample(simName='TNG50-1', snapNum=99, hw=0.1, minNum=50) :
+def comp_prop_plots_for_sample(simName='TNG50-1', snapNum=99, hw=0.1,
+                               minNum=50, nelson2021version=True, save=True) :
     
     # define the input and output directories, and the helper file
     inDir = bsPath(simName)
-    helper_file = inDir + '/{}_{}_comprehensive_plots_helper.hdf5'.format(
-        simName, snapNum)
+    helper_file = inDir + '/{}_{}_profiles(t).hdf5'.format(simName, snapNum)
     outDir = inDir + '/figures/comprehensive_plots/'
-    
-    # write an empty file which will hold all the computed radial profiles
-    if not exists(helper_file) :
-        hf = h5py.File(helper_file, 'w')
-        hf.close()
     
     # get relevant information for the general sample, and quenched systems
     (snapshots, redshifts, times, subIDs, logM, Re, centers, UVK, SFHs, SFMS,
@@ -41,8 +147,20 @@ def comp_prop_plots_for_sample(simName='TNG50-1', snapNum=99, hw=0.1, minNum=50)
      q_ionsets, q_tonsets, q_iterms, q_tterms) = get_quenched_data(
          simName=simName, snapNum=snapNum)
     
-    st = 0
-    end = 1577
+    # get basic information for the UVK and radial profile plots
+    UVK_X_cent, UVK_Y_cent, UVK_contour, UVK_levels = determine_UVK_contours(UVK)
+    (radial_edges, mids,
+     spatial_edges, XX, YY, X_cent, Y_cent) = set_basic_info_for_plots()
+    
+    # set which version to use
+    if nelson2021version :
+        label = r'sSFR (yr$^{-1}$)'
+    else :
+        label = (r'$\log(\dot{\Sigma}_{\rm *, 100~Myr}/' +
+                 r'{\rm M}_{\odot}~{\rm yr}^{-1}~{\rm kpc}^{-2})$')
+    
+    st = 559 # 6 # 0
+    end = 560 # 7 # 1577
     # loop through the quenched galaxies in the sample
     for i, (q_subfin, q_subID, q_logM, q_SFH, q_rad, q_cent, q_UVK_ind, q_lo, q_hi,
          q_ionset, q_tonset, q_iterm, q_tterm) in enumerate(zip(q_subIDfinals[st:end],
@@ -50,7 +168,7 @@ def comp_prop_plots_for_sample(simName='TNG50-1', snapNum=99, hw=0.1, minNum=50)
              q_centers[st:end], q_UVK[st:end], q_lo_SFH[st:end], q_hi_SFH[st:end],
              q_ionsets[st:end], q_tonsets[st:end], q_iterms[st:end], q_tterms[st:end])) :
         
-        print('{}/1576 - attempting subID {}'.format(i, q_subfin)) # 1577 total
+        # print('{}/1576 - attempting subID {}'.format(i, q_subfin)) # 1577 total
         
         # work through the snapshots from onset until termination, but using
         # tterm isn't very illustrative, so use alternative times based on the
@@ -61,60 +179,121 @@ def comp_prop_plots_for_sample(simName='TNG50-1', snapNum=99, hw=0.1, minNum=50)
         indices = find_nearest(times, index_times)
         
         try :
-            outfile = outDir + 'subID_{}.pdf'.format(q_subfin)
+            outfile = outDir + 'subID_{}_prev.png'.format(q_subfin)
             # if not exists(outfile) :
             # create the comprehensive plot for the quenched galaxy
-            comprehensive_plot(q_subfin, q_subID, q_logM, q_SFH, q_rad, q_cent,
-                               q_UVK_ind, q_lo, q_hi, redshifts, times, subIDs,
-                               logM, Re, centers, UVK, SFHs, SFMS, q_ionset,
-                               q_tonset, q_iterm, q_tterm, indices, outfile,
-                               save=True, nelson2021version=True)
-            
-            # if i % 100 == 0 :
-            #     msg = '{}/1576 - subID {} done'.format(i, q_subfin)
-            #     send_message(msg)
+            comprehensive_plot(q_subfin, q_subID, q_logM, q_SFH, q_rad,
+                               q_cent, q_UVK_ind, q_lo, q_hi, redshifts,
+                               times, subIDs, logM, Re, centers, UVK, SFHs,
+                               SFMS, q_tonset, q_iterm, q_tterm, indices,
+                               radial_edges, mids, spatial_edges, XX, YY,
+                               X_cent, Y_cent, UVK_X_cent, UVK_Y_cent,
+                               UVK_contour, UVK_levels, label, helper_file,
+                               outfile, nelson2021version=nelson2021version,
+                               save=save)
             
             # create the proposal plot for the quenched galaxy
-            # proposal_plot(q_subfin, q_subID, q_logM, q_rad, q_cent, indices,
-            #               redshifts, times, subIDs, logM, Re, centers, SFHs,
-            #               SFMS, outfile)
+            # proposal_plot(q_subfin, q_subID, q_logM, q_rad, q_cent,
+            #               indices, redshifts, times, subIDs, logM, Re,
+            #               centers, SFHs, SFMS, outfile)
+            
         except :
-            # print(q_subfin)
             pass
     
     return
 
-def comprehensive_plot(q_subfin, q_subID, q_logM, q_SFH, q_rad, q_cent,
-                       q_UVK_ind, q_lo_SFH, q_hi_SFH, redshifts, times, subIDs,
-                       logM, Re, centers, UVK, SFHs, SFMS, q_ionset, q_tonset,
-                       q_iterm, q_tterm, snaps, outfile, save=False,
-                       nelson2021version=True) :
+def comp_prop_plots_for_starbursts(simName='TNG50-1', snapNum=99, hw=0.1,
+                                   minNum=50, nelson2021version=True,
+                                   save=False) :
     
-    UVK_X_cent, UVK_Y_cent, UVK_contour, UVK_levels = UVK_contours(UVK)
+    # define the input and output directories, and the input and helper files
+    inDir = bsPath(simName)
+    infile = inDir + '/{}_{}_sample(t).hdf5'.format(simName, snapNum)
+    helper_file = inDir + '/{}_{}_profiles(t).hdf5'.format(simName, snapNum)
+    outDir = inDir + '/figures/comprehensive_plots_starbursts/'
     
-    # get the quenched galaxy's UVK positions
-    UVK_snaps = q_UVK_ind[np.concatenate((snaps, [q_iterm]))]
-    UVK_snaps_xs = UVK_snaps[:, 1] - UVK_snaps[:, 2]
-    UVK_snaps_ys = UVK_snaps[:, 0] - UVK_snaps[:, 1]
+    # get relevant information for the general sample, and quenched systems
+    with h5py.File(infile, 'r') as hf :
+        redshifts = hf['redshifts'][:]
+        times = hf['times'][:]
+        subIDfinals = hf['SubhaloID'][:].astype(int)
+        subIDs = hf['subIDs'][:].astype(int)
+        logM = hf['logM'][:]
+        Re = hf['Re'][:]
+        centers = hf['centers'][:]
+        UVK = hf['UVK'][:]
+        # primary = hf['primary_flag'][:]
+        # cluster = hf['cluster'][:]
+        # hm_group = hf['hm_group'][:]
+        # lm_group = hf['lm_group'][:]
+        # field = hf['field'][:]
+        SFHs = hf['SFH'][:]
+        SFMS = hf['SFMS'][:].astype(bool) # (boolean) SFMS at each snapshot
+        lo_SFH = hf['lo_SFH'][:]
+        hi_SFH = hf['hi_SFH'][:]
+        # quenched = hf['quenched'][:]
+        # ionsets = hf['onset_indices'][:].astype(int)
+        # tonsets = hf['onset_times'][:]
+        # iterms = hf['termination_indices'][:].astype(int)
+        # tterms = hf['termination_times'][:]
     
-    # define basic information for the 2D histograms
-    spatial_edges = np.linspace(-5, 5, 61)
-    XX, YY = np.meshgrid(spatial_edges, spatial_edges)
+    with h5py.File('TNG50-1/TNG50-1_99_potential_starburst_locations.hdf5', 'r') as hf :
+        starburst = hf['starburst'][:]
+        starburst_snaps = hf['starburst_snaps'][:].astype(int)
     
-    hist_centers = spatial_edges[:-1] + np.diff(spatial_edges)/2
-    X_cent, Y_cent = np.meshgrid(hist_centers, hist_centers)
-    
-    # define the center points of the radial bins
-    radial_edges = np.linspace(0, 5, 21)
-    mids = []
-    for start, end in zip(radial_edges, radial_edges[1:]) :
-        mids.append(0.5*(start + end))
+    # get basic information for the UVK and radial profile plots
+    UVK_X_cent, UVK_Y_cent, UVK_contour, UVK_levels = determine_UVK_contours(UVK)
+    (radial_edges, mids,
+     spatial_edges, XX, YY, X_cent, Y_cent) = set_basic_info_for_plots()
     
     # set which version to use
     if nelson2021version :
         label = r'sSFR (yr$^{-1}$)'
     else :
-        label = r'$\log(\dot{\Sigma}_{\rm *, 100~Myr}/{\rm M}_{\odot}~{\rm yr}^{-1}~{\rm kpc}^{-2})$'
+        label = (r'$\log(\dot{\Sigma}_{\rm *, 100~Myr}/' +
+                 r'{\rm M}_{\odot}~{\rm yr}^{-1}~{\rm kpc}^{-2})$')
+    
+    s_subIDfinals = subIDfinals[starburst]
+    s_subIDs = subIDs[starburst]
+    s_logM = logM[starburst]
+    s_SFHs = SFHs[starburst]
+    s_Re = Re[starburst]
+    s_centers = centers[starburst]
+    s_UVK = UVK[starburst]
+    s_lo_SFH = lo_SFH[starburst]
+    s_hi_SFH = hi_SFH[starburst]
+    s_starburst_snaps = starburst_snaps[starburst]
+    
+    for i, (s_subfin, s_subID, s_logM, s_SFH, s_rad, s_cent, s_UVK_ind, s_lo,
+        s_hi, s_snap) in enumerate(zip(s_subIDfinals, s_subIDs, s_logM, s_SFHs,
+        s_Re, s_centers, s_UVK, s_lo_SFH, s_hi_SFH, s_starburst_snaps)) :
+        
+        outfile = outDir + 'subID_{}.pdf'.format(s_subfin)
+        comprehensive_plot(s_subfin, s_subID, s_logM, s_SFH, s_rad,
+                            s_cent, s_UVK_ind, s_lo, s_hi, redshifts,
+                            times, subIDs, logM, Re, centers, UVK, SFHs,
+                            SFMS, times[s_snap-3], s_snap+6, times[s_snap+3],
+                            [s_snap-3, s_snap, s_snap+3],
+                            radial_edges, mids, spatial_edges, XX, YY,
+                            X_cent, Y_cent, UVK_X_cent, UVK_Y_cent,
+                            UVK_contour, UVK_levels, label, helper_file,
+                            outfile, nelson2021version=nelson2021version,
+                            save=True)
+    
+    return
+
+def comprehensive_plot(q_subfin, q_subID, q_logM, q_SFH, q_rad, q_cent,
+                       q_UVK_ind, q_lo_SFH, q_hi_SFH, redshifts, times, subIDs,
+                       logM, Re, centers, UVK, SFHs, SFMS, q_tonset,
+                       q_iterm, q_tterm, snaps, radial_edges, mids,
+                       spatial_edges, XX, YY, X_cent, Y_cent, UVK_X_cent,
+                       UVK_Y_cent, UVK_contour, UVK_levels, label, helper_file,
+                       outfile, save=False, nelson2021version=True) :
+    
+    # get the quenched galaxy's UVK positions
+    UVK_snaps = q_UVK_ind[np.concatenate((snaps, [q_iterm]))]
+    UVK_snaps_xs = UVK_snaps[:, 1] - UVK_snaps[:, 2]
+    UVK_snaps_ys = UVK_snaps[:, 0] - UVK_snaps[:, 1]
     
     hists, contours, levels, subtitles = [], [], [], []
     mains, los, meds, his = [], [], [], []
@@ -135,29 +314,12 @@ def comprehensive_plot(q_subfin, q_subID, q_logM, q_SFH, q_rad, q_cent,
         levels.append(level)
         
         # get required information for the radial plots
-        helper_file = 'TNG50-1/TNG50-1_99_comprehensive_plots_helper.hdf5'
-        if exists(helper_file) :
-            
-            # get the radial profiles for the quenched galaxy and the
-            # comparison control sample
-            with h5py.File(helper_file, 'r') as hf :
-                main = hf['Snapshot_{}/subID_{}_main'.format(
-                    snap, q_subID[snap])][:]
-                comparison = hf['Snapshot_{}/subID_{}_control'.format(
-                    snap, q_subID[snap])][:]
-            
-            # get the percentiles
-            lo, med, hi = np.nanpercentile(comparison, [16, 50, 84], axis=0)
-            
-            # append those values to the lists
-            mains.append(main)
-            los.append(lo)
-            meds.append(med)
-            his.append(hi)
-        else :
-            save_radial_plot_info(times, subIDs, logM, Re, centers, SFMS,
-                snap, q_subID, q_logM, q_rad, q_cent, radial_edges, 100*u.Myr,
-                nelson2021version=nelson2021version)
+        main, lo, med, hi = radial_plot_info(subIDs, logM, SFMS, snap,
+            q_subID[snap], q_logM[snap], helper_file, nelson2021version=True)
+        mains.append(main)
+        los.append(lo)
+        meds.append(med)
+        his.append(hi)
     
     # find the colorbar limits for the spatial plots
     vmin, vmax = determine_limits_spatial(hists)
@@ -213,6 +375,42 @@ def comprehensive_plot(q_subfin, q_subID, q_logM, q_SFH, q_rad, q_cent,
     
     return
 
+def file_prep_for_CRM() :
+    
+    infile = 'TNG50-1/TNG50-1_99_sample(t).hdf5'
+    helper_file = 'TNG50-1/TNG50-1_99_profiles(t).hdf5'
+    
+    with h5py.File(infile, 'r') as hf :
+        logM = hf['logM'][:, -1]
+        Re = hf['Re'][:, -1]
+        SFMS = hf['SFMS'][:, -1].astype(bool) # (boolean) SFMS at each snapshot
+    
+    with h5py.File(helper_file, 'r') as hf :
+        edges = hf['edges'][:]
+        mids = hf['mids'][:]
+        SFR_profiles = hf['SFR_profiles'][:, -1, :]
+        area_profiles = hf['area_profiles'][:, -1, :]
+        nSFparticles = hf['nSFparticles'][:, -1, :].astype(int)
+    
+    # limit galaxies to those on the SFMS at redshift 0
+    masses = logM[SFMS]
+    Re = Re[SFMS]
+    nSFparticles = nSFparticles[SFMS]
+    
+    # SFR surface density in each annulus, units of Mdot/yr/kpc^2
+    profiles = SFR_profiles/area_profiles
+    profiles = profiles[SFMS]
+    
+    with h5py.File('TNG50_SFMS_z0_SFRsurfaceArea_profiles.hdf5', 'w') as hf :
+        add_dataset(hf, edges, 'edges')
+        add_dataset(hf, mids, 'mids')
+        add_dataset(hf, masses, 'logM')
+        add_dataset(hf, Re, 'Re')
+        add_dataset(hf, profiles, 'profiles')
+        add_dataset(hf, nSFparticles, 'nSFparticles')
+    
+    return
+
 def determine_limits_radial(mains, los, meds, his) :
     
     # convert lists to arrays, and flatten those arrays
@@ -223,6 +421,9 @@ def determine_limits_radial(mains, los, meds, his) :
     
     # create array of everything
     full = np.concatenate((mains, los, meds, his))
+    
+    # mask out zeros, which will create issues when taking the logarithm
+    full[full == 0.0] = np.nan
     
     # find appropriate limits based on the extremes
     # ymin = np.power(10, np.floor(np.log10(np.nanmin(full))))
@@ -246,108 +447,200 @@ def determine_limits_spatial(histograms) :
     
     return vmin, vmax
 
-def determine_radial_profile(simName, snapNum, time, subID, center, snap, Re,
-                             edges, delta_t=100*u.Myr, nelson2021version=False) :
+def determine_radial_profiles(simName, snapNum, snap, time, subID, Re, center,
+                              edges, length, delta_t=100*u.Myr) :
     
     # open the corresponding cutouts and get their particles
     ages, masses, rs = get_particles(simName, snapNum, snap, subID, center)
     
-    if rs is not None :
-        # mask all particles to within 5Re
+    if (ages is not None) and (masses is not None) and (rs is not None) :
+        # mask all particles to within the maximum radius (default 5Re)
         rs = rs/Re
-        ages, masses, rs = ages[rs <= 5], masses[rs <= 5], rs[rs <= 5]
+        max_Re = edges[-1]
+        ages = ages[rs <= max_Re]
+        masses = masses[rs <= max_Re]
+        rs = rs[rs <= max_Re]
         
         # find the total mass and area (in kpc^2) in each annulus
-        mass_in_annuli, areas = [], []
+        mass_profile, area_profile, nParticles = [], [], []
         for start, end in zip(edges, edges[1:]) :
-            mass = np.sum(masses[(rs >= start) & (rs < end)])
+            mass_in_bin = masses[(rs >= start) & (rs < end)]
+            mass = np.sum(mass_in_bin)
             
-            if mass == 0.0 :
-                mass_in_annuli.append(np.nan)
-            else :
-                mass_in_annuli.append(mass)
+            nParticles.append(len(mass_in_bin))
+            mass_profile.append(mass)
             
             area = np.pi*(np.square(end*Re) - np.square(start*Re))
-            areas.append(area)
-        mass_in_annuli, areas = np.array(mass_in_annuli), np.array(areas)
+            area_profile.append(area)
+        
+        # convert lists to arrays
+        nParticles, mass_profile = np.array(nParticles), np.array(mass_profile)
+        area_profile = np.array(area_profile)
         
         # get the SF particles
-        _, masses, rs = get_sf_particles(ages, masses, rs, time,
-                                         delta_t=delta_t)
+        _, SF_masses, SF_rs = get_sf_particles(ages, masses, rs, time,
+                                               delta_t=delta_t)
         
         # find the SF mass in each annulus
-        SF_mass_in_annuli = []
+        SF_mass_profile, nSFparticles = [], []
         for start, end in zip(edges, edges[1:]) :
-            total_mass = np.sum(masses[(rs >= start) & (rs < end)])
+            SF_mass_in_bin = SF_masses[(SF_rs >= start) & (SF_rs < end)]
+            SF_mass = np.sum(SF_mass_in_bin)
             
-            if total_mass == 0.0 :
-                SF_mass_in_annuli.append(np.nan)
-            else :
-                SF_mass_in_annuli.append(total_mass)
-        SF_mass_in_annuli = np.array(SF_mass_in_annuli)
+            nSFparticles.append(len(SF_mass_in_bin))
+            SF_mass_profile.append(SF_mass)
         
-        delta_t = (delta_t.to(u.yr).value)
+        # convert lists to arrays
+        nSFparticles = np.array(nSFparticles)
+        SF_mass_profile = np.array(SF_mass_profile)
         
-        if nelson2021version :
-            # sSFR in each annulus
-            final = SF_mass_in_annuli/delta_t/mass_in_annuli # units of yr^-1
-        else :
-            # SFR surface density in each annulus
-            final = SF_mass_in_annuli/delta_t/areas # units of Mdot/yr/kpc^2
+        # convert the length of time to years
+        SFR_profile = SF_mass_profile/(delta_t.to(u.yr).value)
     else :
-        final = np.full(20, np.nan)
+        full_vals = np.full(length, np.nan)
+        SFR_profile, mass_profile, area_profile = full_vals, full_vals, full_vals
+        nParticles, nSFparticles = full_vals, full_vals
     
-    return final
+    return SFR_profile, mass_profile, area_profile, nParticles, nSFparticles
 
-def merge_comp_plots(simName='TNG50-1', snapNum=99) :
+def determine_UVK_contours(UVK) :
     
-    # define the input and output directories and files
-    base = bsPath(simName)
-    infile = base + '/TNG50-1_99_sample(t).hdf5'
-    inDir = base + '/figures/comprehensive_plots/'
-    outDir = base + '/figures/comprehensive_plots_merged/'
+    # define basic information for the UVK contours
+    UVK_edges_x = np.linspace(0.5, 3.4, 21)
+    UVK_edges_y = np.linspace(-0.5, 1.75, 21)
+    UVK_x_centers = UVK_edges_x[:-1] + np.diff(UVK_edges_x)/2
+    UVK_y_centers = UVK_edges_y[:-1] + np.diff(UVK_edges_y)/2
+    UVK_X_cent, UVK_Y_cent = np.meshgrid(UVK_x_centers, UVK_y_centers)
     
-    # get information about the quenched sample
-    with h5py.File(infile, 'r') as hf :
-        subIDfinals = hf['SubhaloID'][:]
-        logM = hf['logM'][:]
-        quenched = hf['quenched'][:]
+    UVK_z0 = UVK[:, -1, :]
+    UVK_xs = UVK_z0[:, 1] - UVK_z0[:, 2]
+    UVK_ys = UVK_z0[:, 0] - UVK_z0[:, 1]
     
-    # get the subIDfinals, 
-    quenched_subIDs = subIDfinals[quenched]
-    quenched_logM_z0 = logM[:, -1][quenched]
+    UVK_hist, _, _ = np.histogram2d(UVK_xs, UVK_ys, bins=(UVK_edges_x,
+                                                          UVK_edges_y))
+    UVK_contour = gaussian_filter(UVK_hist.T, 0.4)
     
-    # now sort the subIDs and stellar masses
-    sort = np.argsort(quenched_logM_z0)
-    quenched_subIDs_sorted = quenched_subIDs[sort]
-    quenched_logM_z0_sorted = quenched_logM_z0[sort]
+    UVK_vals = np.sort(UVK_hist.flatten())
+    UVK_vals = UVK_vals[UVK_vals > 0]
+    UVK_levels = np.percentile(UVK_vals, [16, 50, 84, 95, 99])
     
-    # set the mass bin edges to group quenched galaxies of a simiarl mass
-    edges = [8.00, 8.25, 8.50, 8.75, 9.00, 9.50, 10.00, 11.00, 13.00]
-    # 356, 276, 255, 186, 226, 111, 144, 23 quenched galaxies per bin
+    return UVK_X_cent, UVK_Y_cent, UVK_contour, UVK_levels
+
+def radial_plot_info(subIDs, logM, SFMS, snap, q_subID, q_mass,
+                     helper_file, nelson2021version=True) :
     
-    # loop over every bin
-    for start, end in zip(edges, edges[1:]) :
-        mass_bin = ((quenched_logM_z0_sorted >= start) &
-                    (quenched_logM_z0_sorted < end))
-        
-        # create a merged object
-        merger = PdfWriter()
-        
-        # loop over every quenched galaxy in the mass bin
-        for subID in quenched_subIDs_sorted[mass_bin] :
-            merger.append(inDir + 'subID_{}.pdf'.format(subID))
-        
-        # write the merged file and close it
-        outfile = outDir + 'merged_{:.2f}_{:.2f}.pdf'.format(start, end)
-        merger.write(outfile)
-        merger.close()
+    # open the helper file to access the profiles
+    with h5py.File(helper_file, 'r') as hf :
+        SFR_profiles = hf['SFR_profiles'][:]
+        mass_profiles = hf['mass_profiles'][:]
+        area_profiles = hf['area_profiles'][:]
     
-    table = Table([quenched_subIDs_sorted, quenched_logM_z0_sorted],
-                  names=('subID', 'logM'))
-    table.write('comprehensive_plots_visual_inspection.csv', overwrite=False)
+    # get values at the snapshot
+    subIDs_at_snap = subIDs[:, snap]
+    logM_at_snap = logM[:, snap]
+    SFMS_at_snap = SFMS[:, snap]
     
-    return
+    SFR_profiles_at_snap = SFR_profiles[:, snap, :]
+    mass_profiles_at_snap = mass_profiles[:, snap, :]
+    area_profiles_at_snap = area_profiles[:, snap, :]
+    
+    # create a mask for the SFMS galaxy masses at that snapshot
+    SFMS_at_snap_masses_mask = np.where(SFMS_at_snap > 0,
+                                        logM_at_snap, False)
+    
+    # find galaxies in a similar mass range as the galaxy, but that
+    # are on the SFMS at that snapshot
+    mass_bin = determine_mass_bin_indices(SFMS_at_snap_masses_mask,
+        q_mass, hw=0.1, minNum=50)
+    
+    # mask the profiles to the control sample
+    control_SFR_profiles = SFR_profiles_at_snap[mass_bin]
+    control_mass_profiles = mass_profiles_at_snap[mass_bin]
+    control_area_profiles = area_profiles_at_snap[mass_bin]
+    
+    # find the location of the quenched galaxy
+    loc = np.where(subIDs_at_snap == q_subID)[0][0]
+    
+    if nelson2021version :
+        # sSFR in each annulus, units of yr^-1
+        main = SFR_profiles_at_snap[loc]/mass_profiles_at_snap[loc]
+        comparison = control_SFR_profiles/control_mass_profiles
+    else :
+        # SFR surface density in each annulus, units of Mdot/yr/kpc^2
+        main = SFR_profiles_at_snap[loc]/area_profiles_at_snap[loc]
+        comparison = control_SFR_profiles/control_area_profiles
+    
+    # get the percentiles
+    lo, med, hi = np.nanpercentile(comparison, [16, 50, 84], axis=0)
+    
+    return main, lo, med, hi
+
+def set_basic_info_for_plots() :
+    
+    # define the center points of the radial bins
+    radial_edges = np.linspace(0, 5, 21)
+    mids = []
+    for start, end in zip(radial_edges, radial_edges[1:]) :
+        mids.append(0.5*(start + end))
+    
+    # define basic information for the 2D histograms
+    spatial_edges = np.linspace(-5, 5, 61)
+    XX, YY = np.meshgrid(spatial_edges, spatial_edges)
+    
+    hist_centers = spatial_edges[:-1] + np.diff(spatial_edges)/2
+    X_cent, Y_cent = np.meshgrid(hist_centers, hist_centers)
+    
+    return radial_edges, mids, spatial_edges, XX, YY, X_cent, Y_cent
+
+def spatial_plot_info(time, snap, mpbsubID, center, Re, edges, delta_t,
+                      nelson2021version=True, sfr_map=False) :
+    
+    # get all particles
+    (gas_masses, gas_sfrs, gas_coords, star_ages, star_gfm, star_masses,
+     star_coords) = get_rotation_input('TNG50-1', 99, snap, mpbsubID)
+    
+    # determine the rotation matrix
+    # rot = rotation_matrix_from_MoI_tensor(calculate_MoI_tensor(
+    #     gas_masses, gas_sfrs, gas_coords, star_ages, star_masses, star_coords,
+    #     Re, center))
+    
+    # reproject the coordinates using the face-on projection
+    # dx, dy, dz = np.matmul(np.asarray(rot['face-on']), (star_coords-center).T)
+    
+    # don't project using face-on version
+    dx, dy, dz = (star_coords - center).T
+    
+    # get the SF particles
+    _, sf_masses, sf_dx, sf_dy, sf_dz = get_sf_particle_positions(
+        star_ages, star_gfm, dx, dy, dz, time, delta_t=delta_t)
+    
+    # create 2D histograms of the particles and SF particles
+    hh, _, _ = np.histogram2d(dx/Re, dy/Re, bins=(edges, edges),
+                              weights=star_gfm)
+    hh = hh.T
+    
+    hh_sf, _, _ = np.histogram2d(sf_dx/Re, sf_dy/Re, bins=(edges, edges),
+                                 weights=sf_masses)
+    hh_sf = hh_sf.T
+    
+    # determine the area of a single pixel
+    area = np.square((edges[1] - edges[0])*Re)
+    
+    if nelson2021version :
+        hist = hh_sf/(delta_t.to(u.yr).value)/hh
+    else :
+        hist = hh_sf/(delta_t.to(u.yr).value)/area
+    
+    if sfr_map :
+        hist = hh_sf/(delta_t.to(u.yr).value)
+    
+    # set up the contours
+    # adapted from https://stackoverflow.com/questions/26351621
+    vals = np.sort(hh.flatten())
+    vals = vals[vals > 0]
+    levels = np.percentile(vals, [50, 84, 95, 99])
+    
+    return hist, gaussian_filter(hh, 0.6), levels
 
 def proposal_plot(q_subfin, q_subID, q_mass, q_radii, q_center, snaps,
                   redshifts, times, subIDs, logM, Re, centers, SFHs, SFMS,
@@ -366,7 +659,8 @@ def proposal_plot(q_subfin, q_subID, q_mass, q_radii, q_center, snaps,
         label = r'sSFR (yr$^{-1}$)'
         ymin_b, ymax_b = 1e-12, 1e-9
     else :
-        label = r'$\log(\dot{\Sigma}_{\rm *, 100~Myr}/{\rm M}_{\odot}~{\rm yr}^{-1}~{\rm kpc}^{-2})$'
+        label = (r'$\log(\dot{\Sigma}_{\rm *, 100~Myr}/' +
+                 r'{\rm M}_{\odot}~{\rm yr}^{-1}~{\rm kpc}^{-2})$')
         ymin_b, ymax_b = 1e-5, 1
     
     dfs, hists, fwhms, titles = [], [], [], []
@@ -419,126 +713,197 @@ def proposal_plot(q_subfin, q_subID, q_mass, q_radii, q_center, snaps,
     
     return
 
-def save_radial_plot_info(times, subIDs, logM, Re, centers, SFMS, snap, 
-                          q_subID, q_mass, q_radii, q_center, edges, delta_t,
-                          nelson2021version=False) :
+def merge_comp_plots(simName='TNG50-1', snapNum=99) :
     
-    helper_file = 'TNG50-1/TNG50-1_99_comprehensive_plots_helper.hdf5'
+    # define the input and output directories and files
+    base = bsPath(simName)
+    infile = base + '/TNG50-1_99_sample(t).hdf5'
+    inDir = base + '/figures/comprehensive_plots/'
+    outDir = base + '/figures/comprehensive_plots_merged/'
     
-    # get values at the snapshot
-    time = times[snap]
-    subIDs_at_snap = subIDs[:, snap]
-    logM_at_snap = logM[:, snap]
-    Re_at_snap = Re[:, snap]
-    centers_at_snap = centers[:, snap, :]
-    SFMS_at_snap = SFMS[:, snap]
+    # get information about the quenched sample
+    with h5py.File(infile, 'r') as hf :
+        subIDfinals = hf['SubhaloID'][:]
+        logM = hf['logM'][:]
+        quenched = hf['quenched'][:]
     
-    # and for the quenched galaxy as well
-    q_ID = q_subID[snap]
-    mass = q_mass[snap]
-    Re = q_radii[snap]
-    cent = q_center[snap]
+    # get the subIDfinals
+    quenched_subIDs = subIDfinals[quenched]
+    quenched_logM_z0 = logM[:, -1][quenched]
     
-    # calculate the radial profile for the quenched galaxy
-    main_profile = determine_radial_profile('TNG50-1', 99, time, q_ID, cent,
-        snap, Re, edges, delta_t=delta_t, nelson2021version=nelson2021version)
+    # now sort the subIDs and stellar masses
+    sort = np.argsort(quenched_logM_z0)
+    quenched_subIDs_sorted = quenched_subIDs[sort]
+    quenched_logM_z0_sorted = quenched_logM_z0[sort]
     
-    # create a mask for the SFMS galaxy masses at that snapshot
-    SFMS_at_snap_masses_mask = np.where(SFMS_at_snap > 0,
-                                        logM_at_snap, False)
+    # set the mass bin edges to group quenched galaxies of a simiarl mass
+    edges = [8.00, 8.25, 8.50, 8.75, 9.00, 9.50, 10.00, 11.00, 13.00]
+    # 356, 276, 255, 186, 226, 111, 144, 23 quenched galaxies per bin
     
-    # find galaxies in a similar mass range as the galaxy, but that
-    # are on the SFMS at that snapshot
-    mass_bin = determine_mass_bin_indices(SFMS_at_snap_masses_mask,
-        mass, hw=0.1, minNum=50)
+    # loop over every bin
+    for start, end in zip(edges, edges[1:]) :
+        mass_bin = ((quenched_logM_z0_sorted >= start) &
+                    (quenched_logM_z0_sorted < end))
+        
+        # create a merged object
+        merger = PdfWriter()
+        
+        # loop over every quenched galaxy in the mass bin
+        for subID in quenched_subIDs_sorted[mass_bin] :
+            merger.append(inDir + 'subID_{}.pdf'.format(subID))
+        
+        # write the merged file and close it
+        outfile = outDir + 'merged_{:.2f}_{:.2f}.pdf'.format(start, end)
+        merger.write(outfile)
+        merger.close()
     
-    # create an empty array that will hold all of the radial profiles
-    profiles = np.full((len(subIDs[mass_bin]), 20), np.nan)
-    
-    # loop over all the comparison galaxies and populate into the array
-    control_IDs = subIDs_at_snap[mass_bin]
-    control_logM = logM_at_snap[mass_bin]
-    control_Re = Re_at_snap[mass_bin]
-    control_centers = centers_at_snap[mass_bin]
-    
-    for i, (ID, mass, radius, center) in enumerate(zip(control_IDs,
-        control_logM, control_Re, control_centers)) :
-        profiles[i, :] = determine_radial_profile('TNG50-1', 99, time, ID,
-            center, snap, radius, edges, delta_t=delta_t,
-            nelson2021version=nelson2021version)
-    
-    # save the determined radial profiles to the helper file
-    with h5py.File(helper_file, 'a') as hf :
-        add_dataset(hf, main_profile, 'Snapshot_{}/subID_{}_main'.format(
-            snap, q_ID))
-        add_dataset(hf, profiles, 'Snapshot_{}/subID_{}_control'.format(
-            snap, q_ID))
+    table = Table([quenched_subIDs_sorted, quenched_logM_z0_sorted],
+                  names=('subID', 'logM'))
+    table.write('comprehensive_plots_visual_inspection.csv', overwrite=False)
     
     return
 
-def spatial_plot_info(time, snap, mpbsubID, center, Re, edges, delta_t,
-                      nelson2021version=False, fast=True) :
+def radial_plot_info_old(snap, q_subID, helper_file, nelson2021version=True) :
     
-    # get all particles
-    (gas_masses, gas_sfrs, gas_coords, star_ages, star_gfm, star_masses,
-     star_coords) = get_rotation_input('TNG50-1', 99, snap, mpbsubID)
+    # define the label for the snapshot and quenched subID
+    keyBase = 'Snapshot_{}/subID_{}_'.format(snap, q_subID)
     
-    # determine the rotation matrix
-    rot = rotation_matrix_from_MoI_tensor(calculate_MoI_tensor(
-        gas_masses, gas_sfrs, gas_coords, star_ages, star_masses, star_coords,
-        Re, center))
+    # get the radial profiles for the quenched galaxy and the
+    # comparison control sample
+    with h5py.File(helper_file, 'r') as hf :
+        main_SFR_profile = hf[keyBase + 'main_SFR_profile'][:]
+        main_mass_profile = hf[keyBase + 'main_mass_profile'][:]
+        main_area_profile = hf[keyBase + 'main_area_profile'][:]
+        
+        control_SFR_profiles = hf[keyBase + 'control_SFR_profiles'][:]
+        control_mass_profiles = hf[keyBase + 'control_mass_profiles'][:]
+        control_area_profiles = hf[keyBase + 'control_area_profiles'][:]
     
-    # reproject the coordinates using the face-on projection
-    dx, dy, dz = np.matmul(np.asarray(rot['face-on']), (star_coords-center).T)
-    
-    # get the SF particles
-    _, sf_masses, sf_dx, sf_dy, sf_dz = get_sf_particle_positions(
-        star_ages, star_gfm, dx, dy, dz, time, delta_t=delta_t)
-    
-    # create 2D histograms of the particles and SF particles
-    hh, _, _ = np.histogram2d(dx/Re, dy/Re, bins=(edges, edges),
-                              weights=star_gfm)
-    hh = hh.T
-    
-    hh_sf, _, _ = np.histogram2d(sf_dx/Re, sf_dy/Re, bins=(edges, edges),
-                                 weights=sf_masses)
-    hh_sf = hh_sf.T
-    
-    # determine the area of a single pixel
-    area = np.square((edges[1] - edges[0])*Re)
-    
-    if nelson2021version :
-        hist = hh_sf/(delta_t.to(u.yr).value)/hh
-    else :
-        hist = hh_sf/(delta_t.to(u.yr).value)/area
-    
-    # set up the contours
-    # adapted from https://stackoverflow.com/questions/26351621
-    vals = np.sort(hh.flatten())
-    vals = vals[vals > 0]
-    levels = np.percentile(vals, [50, 84, 95, 99])
-    
-    return hist, gaussian_filter(hh, 0.6), levels
+    return
 
-def UVK_contours(UVK) :
+# count how many radial profiles were computed before
+# total = 0
+# with h5py.File('TNG50-1/TNG50-1_99_comprehensive_plots_helper_incorrect.hdf5', 'r') as hf :
+#     keys = list(hf.keys())
+#     for key in keys :
+#         subkeys = list(hf[key].keys())
+#         for subkey in subkeys :
+#             if 'control' in subkey :
+#                 entries = hf[key][subkey].shape[0]
+#                 total += entries
+# print(total) # 1729137
+
+# but there are 465661 total SFMS galaxies across all snapshots, and 15070 quenched
+# galaxies from the onset indices to the termination indices => 480731 total
+
+def convert_csv_mechanism_to_hdf5() :
     
-    # define basic information for the UVK contours
-    UVK_edges_x = np.linspace(0.5, 3.4, 21)
-    UVK_edges_y = np.linspace(-0.5, 1.75, 21)
-    UVK_x_centers = UVK_edges_x[:-1] + np.diff(UVK_edges_x)/2
-    UVK_y_centers = UVK_edges_y[:-1] + np.diff(UVK_edges_y)/2
-    UVK_X_cent, UVK_Y_cent = np.meshgrid(UVK_x_centers, UVK_y_centers)
+    tt = Table.read('TNG50-1/comprehensive_plots_visual_inspection.csv')
+    IDs = np.array(tt['subID'])
+    mechanism = np.array(tt['mechanism'])
     
-    UVK_z0 = UVK[:, -1, :]
-    UVK_xs = UVK_z0[:, 1] - UVK_z0[:, 2]
-    UVK_ys = UVK_z0[:, 0] - UVK_z0[:, 1]
+    with h5py.File('TNG50-1/TNG50-1_99_sample(t).hdf5', 'r') as hf :
+        subIDfinals = hf['SubhaloID'][:]
     
-    UVK_hist, _, _ = np.histogram2d(UVK_xs, UVK_ys, bins=(UVK_edges_x,
-                                                          UVK_edges_y))
-    UVK_contour = gaussian_filter(UVK_hist.T, 0.4)
+    outside_in = np.full(8260, False)
+    inside_out = np.full(8260, False)
+    uniform = np.full(8260, False)
+    ambiguous = np.full(8260, False)
+    for i, subID in enumerate(subIDfinals) :
+        in_table = np.where(IDs == subID)[0]
+        if len(in_table) > 0 :
+            loc = in_table[0]
+            mech = mechanism[loc]
+            
+            if mech == 'outside-in' :
+                outside_in[i] = True
+            if mech == 'inside-out' :
+                inside_out[i] = True
+            if mech == 'uniform' :
+                uniform[i] = True
+            if mech == 'ambiguous' :
+                ambiguous[i] = True
     
-    UVK_vals = np.sort(UVK_hist.flatten())
-    UVK_vals = UVK_vals[UVK_vals > 0]
-    UVK_levels = np.percentile(UVK_vals, [16, 50, 84, 95, 99])
+    with h5py.File('TNG50-1/TNG50-1_99_mechanism.hdf5', 'w') as hf :
+        add_dataset(hf, outside_in, 'outside-in')
+        add_dataset(hf, inside_out, 'inside-out')
+        add_dataset(hf, uniform, 'uniform')
+        add_dataset(hf, ambiguous, 'ambiguous')
     
-    return UVK_X_cent, UVK_Y_cent, UVK_contour, UVK_levels
+    return
+
+def merge_comprehensive_plots_based_on_mechanism() :
+    
+    with h5py.File('TNG50-1/TNG50-1_99_sample(t).hdf5', 'r') as hf :
+        subIDfinals = hf['SubhaloID'][:]
+        logM = hf['logM'][:, -1]
+        quenched = hf['quenched'][:]
+    
+    # 278 total galaxies with logM >= 9.5
+    with h5py.File('TNG50-1/TNG50-1_99_mechanism.hdf5', 'r') as hf :
+        outside_in = hf['outside-in'][:] # 109
+        inside_out = hf['inside-out'][:] # 103
+        uniform = hf['uniform'][:]       # 8
+        ambiguous = hf['ambiguous'][:]   # 58
+    
+    inDir = 'TNG50-1/figures/comprehensive_plots/'
+    
+    mask = (logM >= 9.5) & quenched
+    subIDfinals = subIDfinals[mask]
+    outside_in = outside_in[mask]
+    inside_out = inside_out[mask]
+    uniform = uniform[mask]
+    ambiguous = ambiguous[mask]
+    logM = logM[mask]
+    
+    sort = np.argsort(logM)
+    subIDfinals = subIDfinals[sort]
+    outside_in = outside_in[sort]
+    inside_out = inside_out[sort]
+    uniform = uniform[sort]
+    ambiguous = ambiguous[sort]
+    logM = logM[sort]
+    
+    merger = PdfWriter()
+    for subID in subIDfinals[outside_in] :
+        merger.append(inDir + 'subID_{}.pdf'.format(subID))
+    outfile = 'TNG50-1/figures/comprehensive_plots_merged_mechanism/outside_in.pdf'
+    merger.write(outfile)
+    merger.close()
+    
+    merger = PdfWriter()
+    for subID in subIDfinals[inside_out] :
+        merger.append(inDir + 'subID_{}.pdf'.format(subID))
+    outfile = 'TNG50-1/figures/comprehensive_plots_merged_mechanism/inside_out.pdf'
+    merger.write(outfile)
+    merger.close()
+    
+    merger = PdfWriter()
+    for subID in subIDfinals[uniform] :
+        merger.append(inDir + 'subID_{}.pdf'.format(subID))
+    outfile = 'TNG50-1/figures/comprehensive_plots_merged_mechanism/uniform.pdf'
+    merger.write(outfile)
+    merger.close()
+    
+    merger = PdfWriter()
+    for subID in subIDfinals[ambiguous] :
+        merger.append(inDir + 'subID_{}.pdf'.format(subID))
+    outfile = 'TNG50-1/figures/comprehensive_plots_merged_mechanism/ambiguous.pdf'
+    merger.write(outfile)
+    merger.close()
+    
+    return
+
+def merge_starburst_comprehensive_plots() :
+    
+    inDir = 'TNG50-1/figures/comprehensive_plots_starbursts/'
+    outfile = inDir + 'merged.pdf'
+    
+    merger = PdfWriter()
+    for subID in [167404, 673933, 592984, 622298, 220605, 184939, 568923,
+                  167395, 408534] :
+        merger.append(inDir + 'subID_{}.pdf'.format(subID))
+    merger.write(outfile)
+    merger.close()
+    
+    return

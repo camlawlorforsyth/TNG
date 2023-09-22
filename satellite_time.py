@@ -2,311 +2,259 @@
 from os.path import exists
 import numpy as np
 
-from astropy.cosmology import Planck15 as cosmo
+import astropy.units as u
 import h5py
-from scipy.ndimage import gaussian_filter1d
 
-from core import add_dataset, bsPath, determine_mass_bin_indices, get
+from core import add_dataset, bsPath, get
 import plotting as plt
 
-def add_primary_flags(simName, snapNum) :
+def determine_satellite_time_dynamical(simName='TNG50-1', snapNum=99) :
     
-    # define the output directory and the output file
-    outDir = bsPath(simName)
-    outfile = outDir + '/{}_{}_quenched_SFHs(t).hdf5'.format(simName, snapNum)
-    
-    # check if the outfile exists and has good primary flags
-    if exists(outfile) :
-        with h5py.File(outfile, 'r') as hf :
-            if 'primary_flags' in hf.keys() :
-                if np.all(~np.isnan(hf['primary_flags'])) :
-                    print('File already exists with all non-NaN primary flags')
-    
-    # add empty primary flag info into the HDF5 file to populate later
-    if exists(outfile) :
-        with h5py.File(outfile, 'a') as hf :
-            if 'primary_flags' not in hf.keys() :
-                add_dataset(hf, np.full(hf['SFH'].shape, np.nan), 'primary_flags')
-    
-    # if the outfile exists, read the relevant information
-    if exists(outfile) :
-        with h5py.File(outfile, 'r') as hf :
-            subIDs = hf['SubhaloID'][:]
-            x_flags = hf['primary_flags'][:]
-    
-    # now iterate over every subID in subIDs and get the SFH for that subID
-    for i, subID in enumerate(subIDs) :
-        
-        # if the primary flags don't exist for the galaxy, populate the flags
-        if np.all(np.isnan(x_flags[i, :])) :
-            # determine the primary flags for the galaxy
-            url = 'http://www.tng-project.org/api/{}/snapshots/{}/subhalos/{}'.format(
-                simName, snapNum, subID)
-            flags = determine_primary_flags(url)
-            
-            # append those values into the outfile
-            with h5py.File(outfile, 'a') as hf :
-                
-                # the galaxy may not have existed from the first snapshot, so
-                # we have to limit what we replace of the empty array
-                hf['primary_flags'][i, :len(flags)] = flags
-    
-    return
-
-def compare_satellite_times(flag, indices, times, max_age) :
-    
-    consistency_measures = []
-    for index in indices :
-        
-        # index = 0 gives nan because flag[:index] returns an empty list
-        if index == 0 :
-            before = 0.0
-        else :
-            before = times[index]*np.std(flag[:index+1])
-        
-        after = (max_age - times[index+1])*np.std(flag[index+1:])
-        
-        consistency_measures.append(before + after)
-    
-    return indices[np.argmin(consistency_measures)]
-
-def determine_primary_flags(url) :
-    
-    sub = get(url)
-    
-    flags = []
-    flags.append(sub['primary_flag']) # get the first flag at z = 0
-    
-    # now work back through the main progenitor branch tree
-    while sub['prog_sfid'] != -1 :
-        # request the full subhalo details of the progenitor by following the sublink URL
-        sub = get(sub['related']['sublink_progenitor'])
-        
-        # now get the flag for the subprogenitor, working back through the tree
-        flags.append(sub['primary_flag'])
-    
-    return np.flip(flags) # return the array in time increasing order
-
-def determine_satellite_time(simName, snapNum) :
-    
-    # by definition, the primary galaxies have tsat_lookback = 0, so tsat = 13.8 Gyr
-    max_age = cosmo.age(0.0).value
-    
-    # define the output directory and the output file
-    outDir = bsPath(simName)
-    outfile = outDir + '/{}_{}_quenched_SFHs(t).hdf5'.format(simName, snapNum)
-    
-    # get the relevant information to determine the satellite transition time
-    # for the quenched sample
-    with h5py.File(outfile, 'r') as hf :
-        subIDs = hf['SubhaloID'][:]
-        times = hf['times'][:]
-        flags = hf['primary_flags'][:]
-    
-    # add empty satellite times and a satellite flag into the HDF5 file to
-    # populate later
-    with h5py.File(outfile, 'a') as hf :
-        if 'satellite_times' not in hf.keys() :
-            add_dataset(hf, np.full(len(subIDs), np.nan), 'satellite_times')
-        if 'satellite' not in hf.keys() :
-            add_dataset(hf, np.full(len(subIDs), np.nan), 'satellite')
-    
-    # primary to satellite (as we work forward in time)
-    ps = [1, 0]
-    
-    # now loop through all the primary flags, trying to find the definitive
-    # time when the galaxy transitioned from a primary to a satellite
-    for i, flag in enumerate(flags) :
-        
-        print('{} - out of 220'.format(i+1))
-        print(flag)
-        print()
-        
-        '''
-        length = len(flag) - len(ps) + 1
-        indices = [x for x in range(length) if list(flag)[x:x+len(ps)] == ps]
-        # indices returns the location of the start of the subarray, so we
-        # need to increase by 1 to find the first index where a galaxy is
-        # a satellite, given that the transitions are primary-to-satellite
-        indices = np.array(indices) + 1
-        
-        # now use the length of the returned list of indices to determine
-        # three main populations of galaxies: primaries, satellites, and
-        # ambiguous cases
-        if len(indices) == 0 : # galaxies that have always been primaries
-            time, satellite_flag = max_age, 0
-        
-        elif len(indices) == 1 : # galaxies that have only one transition
-            # special cases
-            if i in [ # early, single snapshot when satellite
-                      # early, multiple consecutive snapshots when satellite
-                     ] : # primary to satellite to primary
-                time, satellite_flag = max_age, 0
-            elif i in [] : # less likely primaries - few late primary flags
-                time, satellite_flag = times[indices[0]], 0
-            
-            # for non-special cases, use the found index for the satellite time
-            else :
-                time, satellite_flag = times[indices[0]], 1
-        
-        else : # galaxies with multiple transitions
-            
-            # special cases
-            if i in [] : # very likely primaries
-                time, satellite_flag = max_age, 0
-            elif i in [] : # possible primaries
-                time, satellite_flag = times[indices[-1]], 4
-            elif i in [] : # unlikely primaries
-                time, satellite_flag = times[indices[-1]], 3
-            
-            # for non-special cases, use the most recent transition for simplicity
-            else :
-                time, satellite_flag = times[indices[-1]], 1
-        
-        # update the satellite times and the satellite flag
-        with h5py.File(outfile, 'a') as hf :
-            hf['satellite_times'][i] = time
-            hf['satellite'][i] = satellite_flag
-            
-            # rated out of 5
-            # where primaries are 5, possible primaries are 4,
-            # less likely/unlikely primaries are 3, satellites are 2,
-            # and ambiguous cases are 1
-        '''
-    
-    return
-
-def plot_primary_flags_in_massBin(simName, snapNum, mass_bin_edges) :
-    
-    # define the output directory and the output file
-    outDir = bsPath(simName)
-    outfile = outDir + '/{}_{}_quenched_SFHs.hdf5'.format(simName, snapNum)
-    
-    with h5py.File(outfile, 'r') as hf :
-        primary_flags = hf['primary_flag'][:]
-        times = hf['times'][:]
-        masses = hf['SubhaloMassStars'][:]
-    
-    # iterate over all the mass bins
-    for i, (lo, hi) in enumerate(zip(mass_bin_edges[:-1], mass_bin_edges[1:])) :
-        
-        # loop through the galaxies in the quenched sample in the mass
-        # range/bin of interest
-        flags = []
-        mass_mask = (masses >= lo) & (masses < hi)
-        for mass, flag in zip(masses[mass_mask], primary_flags[mass_mask]) :
-            flags.append(mass + flag)
-        
-        # plot and save the primary flags in each mass bin
-        outfile = 'output/primary_flags_in_massBin/massBin_{}.png'.format(i)
-        plt.plot_simple_many(times, flags,
-                             xlabel=r'$t$ (Gyr)', ylabel='Primary Flag',
-                             xmin=-0.1, xmax=13.8, save=True, outfile=outfile)
-    
-    return
-
-def plot_quenched_systems(simName, snapNum, hw=0.1, minNum=50, kernel=2) :
-    
-    # define the input directory and the input file for the SFHs
+    # define the input directory and file, and the file which contains the flags,
+    # and the output file
     inDir = bsPath(simName)
-    infile = inDir + '/{}_{}_quenched_SFHs(t).hdf5'.format(simName, snapNum)
-    sample_file = inDir + '/{}_{}_sample_SFHs(t).hdf5'.format(simName, snapNum)
+    infile = inDir + '/{}_{}_sample(t).hdf5'.format(simName, snapNum)
+    flags_file = inDir + '/{}_{}_primary_flags(t).hdf5'.format(simName, snapNum)
+    outfile = inDir + '/{}_{}_satellite_times.hdf5'.format(simName, snapNum)
     
-    # retrieve the relevant information about the quenched systems
+    # load necessary sample information
     with h5py.File(infile, 'r') as hf :
-        subIDs = hf['SubhaloID'][:]
-        masses = hf['SubhaloMassStars'][:]
-        SFHs = hf['SFH'][:]
-        times = hf['times'][:]
-        satellite_times = hf['satellite_times'][:]
-        onset_times = hf['onset_times'][:]
-        termination_times = hf['termination_times'][:]
+        redshifts = hf['redshifts'][:]
+        times = hf['times'][:]*u.Gyr
+        quenched = hf['quenched'][:]
+        tonsets = hf['onset_times'][:]
+        logM = hf['logM'][:]
     
-    # open the SFHs for the sample of all galaxies, to find those for the SFMS
-    with h5py.File(sample_file, 'r') as hf :
-        all_masses = hf['SubhaloMassStars'][:]
-        all_SFHs = hf['SFH'][:]
-        SFMS = hf['SFMS'][:] # star forming main sequence at z = 0
+    # load all the flags
+    with h5py.File(flags_file, 'r') as hf :
+        flags = hf['flags'][:]
     
-    # loop through the galaxies in the quenched sample
-    for subID, mass, SFH, tsat, tonset, tterm in zip(subIDs, masses, SFHs,
-        satellite_times, onset_times, termination_times) :
+    # set the dynamical time at each snapshot
+    t_dyn = (2*u.Gyr)*np.power(1 + redshifts, -1.5)
+    
+    # we require a satellite flag at three consecutive snapshots
+    sss = [0, 0, 0]
+    
+    tsat_indices, tsats = [], []
+    # loop over every galaxy in the sample
+    for flag, use in zip(flags, quenched) :
         
-        # smooth the SFH of the specific galaxy
-        smoothed = gaussian_filter1d(SFH, kernel)
-        smoothed[smoothed < 0] = 0 # the SFR cannot be negative
+        # only caclculate for the quenched galaxies
+        if use :
+            
+            # limit the flags to times since redshift 2, as the early universe
+            # was more chaotic
+            flag = flag[33:]
+            
+            # determine if a galaxy has always been a primary, or has recently
+            # gone back to being a primary -> 141 full primaries, 135 recent changes
+            if np.all(flag == 1) or np.all(flag[-3:] == 1) :
+                tsat_index, tsat = 99, times[99].value
+            
+            # if the galaxy hasn't always been a primary, use the dynamical
+            # time at a given redshift/snapshot to determine when it was first
+            # a satellite
+            else :
+                # find instances (ie. a subarray) of sss in the flag array
+                length = len(flag) - len(sss) + 1
+                indices = [x for x in range(length) if list(flag)[x:x+len(sss)] == sss]
+                
+                # indices returns the location of the start of the subarray
+                indices = np.array(indices)
+                
+                # if there aren't three consecutive snapshots as a satellite,
+                # do further checks to determine satellite times
+                
+                # these galaxies have also always been primaries
+                if (len(indices) == 0) and (flag[-1] == 1) :
+                    tsat_index, tsat = 99, times[99].value
+                
+                # these galaxies have recently become satellites
+                if (len(indices) == 0) and (flag[-1] == 0) and (flag[-2] == 1):
+                    tsat_index, tsat = 99, times[99].value
+                
+                # these galaxies have recently become satellites as well
+                if (len(indices) == 0) and (flag[-1] == 0) and (flag[-2] == 0):
+                    tsat_index, tsat = 98, times[98].value
+                
+                # if there are three consecutive satellite snapshots, compare
+                # the dynamical time at the start of a given run of three to
+                # the length of time that the galaxy has been a satellite
+                # before becoming a primary again
+                if len(indices) > 0 :
+                    ratios = []
+                    # loop over all the found indices and check each index
+                    for index in indices :
+                        
+                        # get the dynamical time at the snapshot, but offset
+                        t_dyn_at_snap = t_dyn[index + 33] # because we started
+                        # at snapshot 33, corresponding to redshift 2
+                        
+                        # check if the subarray is followed by a primary flag
+                        subflag = index + np.nonzero(flag[index:])[0] + 33
+                        if len(subflag) > 0 :
+                            end = subflag[0]
+                        else :
+                            end = 99
+                        
+                        # find the duration the galaxy was a satellite
+                        time_diff = times[end] - times[index + 33] # see above
+                        
+                        # find the ratio of satellite duration to dynamical time
+                        ratio = (time_diff/t_dyn_at_snap).value
+                        ratios.append(ratio)
+                    
+                    # convert list to array
+                    ratios = np.array(ratios)
+                    
+                    # we require the galaxy to be a satellite for at least one
+                    # dynamical time in order for that snapshot to be considered
+                    # when it actually became a satellite
+                    sufficient = (ratios >= 1.0)
+                    
+                    # find the first location that fits the criteria
+                    loc = np.where(sufficient > 0)[0]
+                    if len(loc) > 0 :
+                        loc = loc[0]
+                        tsat_index = indices[loc] + 33
+                    
+                    # 27 galaxies don't have sufficiently long durations as
+                    # satellites
+                    else :
+                        tsat_index = indices[0] + 33
+                        
+                        # a few galaxies have longer durations after the first
+                        # episode of being a satellite
+                        # if np.argmax(ratios) != 0 :
+                            # print(flag)
+                            # print(ratios)
+                            # print()
+                    
+                    # set the time when the galaxy became a satellite
+                    tsat = (times[tsat_index]).value
+        else :
+            tsat_index, tsat = np.nan, np.nan
         
-        # find galaxies in a similar mass range as the galaxy, but that are on
-        # the SFMS at z = 0
-        mass_bin = determine_mass_bin_indices(all_masses[SFMS], mass, hw=hw,
-                                              minNum=minNum)
+        # append the found indices and times to the appropriate lists
+        tsat_indices.append(tsat_index)
+        tsats.append(tsat)
+    
+    # convert lists to arrays
+    tsat_indices, tsats = np.array(tsat_indices), np.array(tsats)
+    
+    # investigate the situation for the 208 galaxies with very early satellite times
+    # for flag, use, tsat_index, tsat in zip(flags, quenched, tsat_indices, tsats) :
         
-        # use the SFH values for those comparison galaxies to determine percentiles
-        comparison_SFHs = all_SFHs[SFMS][mass_bin]
-        lo_SFH, hi_SFH = np.nanpercentile(comparison_SFHs, [2.5, 97.5], axis=0)
-        lo_SFH = gaussian_filter1d(lo_SFH, kernel)
-        hi_SFH = gaussian_filter1d(hi_SFH, kernel)
-        
-        # now plot the curves
-        outfile = 'TNG50-1/quenched_SFHs(t)/quenched_SFH_subID_{}.png'.format(subID)
-        plt.plot_simple_multi_with_times([times, times, times, times],
-                                         [SFH, smoothed, lo_SFH, hi_SFH],
-                                         ['data', 'smoothed', 'lo, hi', ''],
-                                         ['grey', 'k', 'lightgrey', 'lightgrey'],
-                                         ['', '', '', ''],
-                                         ['--', '-', '-.', '-.'],
-                                         [0.5, 1, 1, 1],
-                                         tsat, tonset, tterm,
-                                         xlabel=r'$t$ (Gyr)',
-                                         ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
-                                         xmin=-0.1, xmax=13.8, scale='linear',
-                                         save=True, outfile=outfile, loc=0)
-        
-        '''
-        # now plot the curves without the upper and lower limits
-        outfile = 'output/quenched_SFHs_without_lohi(t)/quenched_SFH_subID_{}.png'.format(subID)
-        plt.plot_simple_multi_with_times([times, times], [SFH, smoothed],
-                                         ['data', 'smoothed'], ['grey', 'k'],
-                                         ['', ''], ['--', '-'], [0.5, 1],
-                                         tsat, tonset, tterm,
-                                         xlabel=r'$t$ (Gyr)',
-                                         ylabel=r'SFR ($M_{\odot}$ yr$^{-1}$)',
-                                         xmin=0, xmax=14, scale='linear',
-                                         save=True, outfile=outfile, loc=0)
-        '''
+        # only caclculate for the quenched galaxies
+        # if use and (tsat < 3.3) :
+        #     print(flag[int(tsat_index):])
+        #     print()
+    
+    # with h5py.File(outfile, 'w') as hf :
+    #     add_dataset(hf, tsat_indices, 'tsat_indices')
+    #     add_dataset(hf, tsats, 'tsats')
     
     return
 
-def plot_satellite_times(simName, snapNum) :
+def get_all_primary_flags(simName='TNG50-1', snapNum=99) :
     
-    # define the output directory and the output file
-    outDir = bsPath(simName)
-    outfile = outDir + '/{}_{}_quenched_SFHs(t).hdf5'.format(simName, snapNum)
+    # define the input directory and file, and the output file
+    inDir = bsPath(simName)
+    infile = inDir + '/{}_{}_sample(t).hdf5'.format(simName, snapNum)
+    outfile = inDir + '/{}_{}_primary_flags(t).hdf5'.format(simName, snapNum)
     
-    # get the masses, satellite and termination times for the quenched sample
+    if not exists(outfile) :
+        with h5py.File(outfile, 'w') as hf :
+            add_dataset(hf, np.full((8260, 100), np.nan), 'flags')
+    
     with h5py.File(outfile, 'r') as hf :
-        masses = hf['SubhaloMassStars'][:]
-        tterm = hf['termination_times'][:]
-        tsatellite = hf['satellite_times'][:]
-        confidence = hf['primary_confidence'][:]
+        all_flags = hf['flags'][:]
     
-    # convert the confidences into colours for plotting
-    colours = np.full(len(masses), '')
-    colours[confidence == 5] = 'r'
-    colours[confidence == 4] = 'k'
-    colours[confidence == 3] = 'm'
-    colours[confidence == 2] = 'b'
-    colours[confidence == 1] = 'w'
+    with h5py.File(infile, 'r') as hf :
+        snaps = hf['snapshots'][:]
+        subIDs = hf['subIDs'][:].astype(int)
+        quenched = hf['quenched'][:]
     
-    # plot those satellite times versus the quenching times
-    plt.plot_scatter(tterm, tsatellite, list(colours), 'data', 'o',
-                     xlabel=r'$t_{\rm termination}$ (Gyr)',
-                     ylabel=r'$t_{\rm satellite}$ (Gyr)')
+    base = 'http://www.tng-project.org/api/{}/snapshots/'.format(simName)
     
-    # plot the time difference as a function of stellar mass
-    ylabel = r'$\Delta t = t_{\rm termination} - t_{\rm satellite}$ (Gyr)'
-    plt.plot_scatter(masses, tterm - tsatellite, list(colours),
-                     'data', 'o', xlabel=r'$\log(M_{*}/M_{\odot})$',
-                     ylabel=ylabel)
+    # loop over every galaxy in the sample, getting the subIDs along the mpb
+    for i, (mpb_subIDs, use) in enumerate(zip(subIDs, quenched)) :
+        
+        # get the primary flags for the quenched sample if they don't exist
+        if use and np.all(np.isnan(all_flags[i, :])) :
+            flags = []
+            
+            # loop over every snapshot along the mpb
+            for snap, subID in zip(snaps, mpb_subIDs) :
+                
+                # only get the primary flag if the subID isn't NaN
+                if subID >= 0 :
+                    url = base + '{}/subhalos/{}'.format(snap, subID)
+                    sub = get(url)
+                    flag = sub['primary_flag']
+                else :
+                    flag = np.nan
+                flags.append(flag)
+            
+            # append the flags into the outfile
+            with h5py.File(outfile, 'a') as hf :
+                hf['flags'][i, :] = flags
     
     return
+
+with h5py.File('TNG50-1/TNG50-1_99_sample(t).hdf5', 'r') as hf :
+    redshifts = hf['redshifts'][:]
+    times = hf['times'][:]*u.Gyr
+    subIDfinals = hf['SubhaloID'][:]
+    quenched = hf['quenched'][:]
+    tonsets = hf['onset_times'][:]
+    logM = hf['logM'][:]
+    cluster = hf['cluster'][:]
+    hmGroup = hf['hm_group'][:]
+    lmGroup = hf['lm_group'][:]
+    field = hf['field'][:]
+
+with h5py.File('TNG50-1/TNG50-1_99_overdensity(t).hdf5', 'r') as hf :
+    overdensity = hf['delta'][:]
+
+with h5py.File('TNG50-1/TNG50-1_99_satellite_times.hdf5', 'r') as hf :
+    tsats = hf['tsats'][:]
+    tsat_indices = hf['tsat_indices'][:]
+
+with h5py.File('TNG50-1/TNG50-1_99_mechanism.hdf5', 'r') as hf :
+    outside_in = hf['outside-in'][:] # 109
+    inside_out = hf['inside-out'][:] # 103
+    uniform = hf['uniform'][:]       # 8
+    ambiguous = hf['ambiguous'][:]   # 58
+
+overdensity = overdensity[:, -1]
+logM = logM[:, -1]
+
+env = np.array([4*cluster, 3*hmGroup, 2*lmGroup, field]).T
+env = np.sum(env, axis=1)
+
+mech = np.array([4*outside_in, 3*inside_out, 2*uniform, ambiguous]).T
+mech = np.sum(mech, axis=1)
+
+# plot the results, using an optional mask
+# cluster is 4, hmGroup is 3, lmGroup is 2, field is 1
+mask = (logM >= 9.5) # (mech == 4) # & (tsats > 0) #& (tsats > 3.3) & (tsats < 13.79)
+colour = env[mask] # red is cluster, yellow/green is hmGroup, cyan is lmGroup, purple is field
+# colour = mech[mask] # red is outside-in, yellow/green is inside-out, cyan is uniform, purple is ambiguous
+
+# delayed = 100*np.sum(tonsets[mask] >= tsats[mask] + 1)/np.sum(mask)
+# preprocessed = 100*np.sum(tonsets[mask] < tsats[mask] - 1)/np.sum(mask)
+# print('delayed = {:.1f}%, preprocessed = {:.1f}%'.format(delayed, preprocessed))
+
+plt.plot_scatter(tsats[mask], tonsets[mask], colour, '', 'o',
+                 size=np.power(logM[mask], 5)/1000,
+                 xlabel=r'$t_{\rm sat}$ (Gyr)',
+                 ylabel=r'$t_{\rm onset}$ (Gyr)',
+                 xmin=0, xmax=14, ymin=0, ymax=14, loc=2,
+                 figsizeheight=8, figsizewidth=8, vmin=1, vmax=4)
+
+# from scipy.stats import pearsonr, spearmanr
+# mask = (tsats > 0)
+# pearson = pearsonr(tsats[mask], tonsets[mask])
+# spearman = spearmanr(tsats[mask], tonsets[mask])
+# print(pearson, spearman)

@@ -9,31 +9,28 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import savgol_filter
 
 from core import (add_dataset, bsPath, determine_mass_bin_indices,
-                  get_mpb_radii_and_centers, get_particles, get_sf_particles)
+                  get_particles, get_sf_particles)
 import plotting as plt
 
-def compute_xi(redshift, masses, rs) :
+def determine_xi(simName, snapNum, redshift, time, snap, mpbsubID, center,
+                 delta_t=100*u.Myr) :
     
-    if (len(masses) == 0) and (len(rs) == 0) :
-        xi = np.nan
+    # get all particles
+    ages, masses, rs = get_particles(simName, snapNum, snap, mpbsubID,
+                                     center)
+    
+    # only proceed if the ages, masses, and distances are intact
+    if (ages is not None) and (masses is not None) and (rs is not None) :
+        
+        # get the SF particles
+        _, masses, rs = get_sf_particles(ages, masses, rs, time,
+                                         delta_t=delta_t)
+        
+        # now compute the ratio of the SFR density within 1 kpc
+        # relative to the total SFR
+        xi = compute_xi(redshift, masses, rs)
     else :
-        
-        # convert the distances to physical kpc
-        rs = rs/(1 + redshift)/cosmo.h
-        
-        # define masks for both regions
-        kpc_mask = (rs <= 1)
-        
-        # if there are star particles that are within that radius range
-        if (np.sum(kpc_mask) > 0) :
-            
-            # determine the total mass formed within the inner region
-            total_mass_formed_within_kpc = np.sum(masses[kpc_mask])
-            total_mass_formed = np.sum(masses)
-            
-            xi = total_mass_formed_within_kpc/total_mass_formed
-        else :
-            xi = np.nan
+        xi = np.nan
     
     return xi
 
@@ -54,23 +51,8 @@ def determine_xi_fxn(simName, snapNum, redshifts, times, subID,
     for redshift, time, snap, mpbsubID, center in zip(redshifts, ts,
         snapNums, mpb_subIDs, centers) :
                         
-        # get all particles
-        ages, masses, rs = get_particles(simName, snapNum, snap, mpbsubID,
-                                         center)
-        
-        # only proceed if the ages, masses, and distances are intact
-        if (ages is not None) and (masses is not None) and (rs is not None) :
-            
-            # get the SF particles
-            _, masses, rs = get_sf_particles(ages, masses, rs, time,
-                                             delta_t=delta_t)
-            
-            # now compute the ratio of the SFR density within 1 kpc
-            # relative to the total SFR
-            xi = compute_xi(redshift, masses, rs)
-            xis.append(xi)
-        else :
-            xis.append(np.nan)
+        xi = determine_xi(redshift, time, snap, mpbsubID, center)
+        xis.append(xi)
     
     return ts, xis
 

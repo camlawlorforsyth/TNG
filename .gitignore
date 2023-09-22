@@ -141,6 +141,19 @@ dmypy.json
 *.png
 *.pkl
 *.xlsx
+background/bathtubs/
+passbands/
+TNG50-1/getting_primary_flags/
+SKIRT/passbands/
+SKIRT/subIDs_quenched/
+SKIRT/subIDs_starforming/
+SKIRT/quixote_astroclf_runs/
+SKIRT/ski_file_tests/
+SKIRT/tests/
+SKIRT/SKIRT_input_quenched/
+SKIRT/SKIRT_input_UV_flux_test/
+SKIRT/SKIRT_output_quenched/
+SKIRT/SKIRT_output_quenched.tar
 
 # additional information
 boneyard/*.ipynb
@@ -150,3 +163,4 @@ noise/background_*
 noise/pandeia_data-2.0/
 noise/passbands_*
 noise/trds/
+slack.py

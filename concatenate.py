@@ -5,6 +5,68 @@ from PIL import Image
 
 def combine() :
     
+    inDir = 'output/CASTOR_proposal/'
+    paths = [inDir + 'evolution_subID_14_snap_63.png',
+             inDir + 'evolution_subID_14_snap_65.png',
+             inDir + 'evolution_subID_14_snap_68.png',
+             inDir + 'SFR-vs-r_subID_14_snap_63.png',
+             inDir + 'SFR-vs-r_subID_14_snap_65.png',
+             inDir + 'SFR-vs-r_subID_14_snap_68.png']
+    
+    # open the data from those images
+    images = [Image.open(image) for image in paths]
+    
+    # create the top row and bottom row
+    top = concat_horiz(images[:3], x_offset=26, extra=21)
+    bottom = concat_horiz(images[3:])
+    
+    # save the final image
+    final = concat_vert([top, bottom])
+    final.save(inDir + 'CASTOR_example_subID_14.png')
+    
+    return
+
+def concat_horiz(paths, x_offset=0, extra=0, save=True, outfile=None) :
+    
+    # open the data from the image paths
+    images = [Image.open(image) for image in paths]
+    
+    # get the widths and heights to create an empty final image
+    widths, heights = zip(*(i.size for i in images))
+    final = Image.new('RGB', (np.sum(widths) + x_offset + extra*(len(images) - 1),
+                              np.max(heights)),
+                      color=(255, 255, 255))
+    
+    # populate the final image with the input images
+    # x_offset = 0
+    for im in images :
+        final.paste(im, (x_offset, 0))
+        x_offset += im.size[0] + extra
+    
+    if save :
+        final.save(outfile)
+        
+        return
+    else :
+        return final
+
+def concat_vert(images) :
+    
+    # get the widths and heights to create an empty final image
+    widths, heights = zip(*(i.size for i in images))
+    final = Image.new('RGB', (np.max(widths), np.sum(heights)),
+                      color=(255, 255, 255))
+    
+    # populate the final image with the input images
+    y_offset = 0
+    for im in images :
+        final.paste(im, (0, y_offset))
+        y_offset += im.size[1]
+    
+    return final
+
+def combine_old() :
+    
     paths = ['MWA_gradient_subID_14_snapNum_10.png',
              'MWA_gradient_subID_14_snapNum_20.png',
              'MWA_gradient_subID_14_snapNum_30.png',
