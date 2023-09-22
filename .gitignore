@@ -146,3 +146,7 @@ dmypy.json
 boneyard/*.ipynb
 boneyard/*.pdf
 *help*
+noise/background_*
+noise/pandeia_data-2.0/
+noise/passbands_*
+noise/trds/
