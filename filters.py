@@ -162,6 +162,36 @@ def check_roman() :
     
     return
 
+def prepare_throughputs_for_fastpp() :
+    
+    filters = ['castor_uv', 'castor_u', 'castor_g',
+               'roman_f106', 'roman_f129', 'roman_f158', 'roman_f184']
+    
+    '''
+    filters = ['hst_f218w',   'castor_uv',   'hst_f225w',   'hst_f275w',
+               'hst_f336w',   'castor_u',    'hst_f390w',   'hst_f438w',
+               'hst_f435w',   'hst_f475w',   'castor_g',    'hst_f555w',
+               'hst_f606w',   'roman_f062',  'hst_f625w',   'jwst_f070w',
+               'hst_f775w',   'hst_f814w',   'roman_f087',  'jwst_f090w',
+               'hst_f850lp',  'hst_f105w',   'roman_f106',  'hst_f110w',
+               'jwst_f115w',  'hst_f125w',   'roman_f129',  'hst_f140w',
+               'roman_f146',  'jwst_f150w',  'hst_f160w',   'roman_f158',
+               'roman_f184',  'jwst_f200w',  'roman_f213',  'jwst_f277w',
+               'jwst_f356w',  'jwst_f410m',  'jwst_f444w',  'jwst_f560w',
+               'jwst_f770w',  'jwst_f1000w', 'jwst_f1130w', 'jwst_f1280w',
+               'jwst_f1500w', 'jwst_f1800w', 'jwst_f2100w', 'jwst_f2550w']
+    '''
+    
+    for filt in filters :
+        array = np.genfromtxt('passbands/{}.txt'.format(filt))
+        final = np.array([np.arange(1, len(array) + 1), array[:, 0]*1e4, array[:, 1]]).T
+        fmt = ['%-4i', '%12.5e', '%12.5e']
+        header = '   {} {}'.format(len(array), filt)
+        np.savetxt('fastpp/passbands/{}.txt'.format(filt), final, fmt=fmt,
+                   header=header, comments='')
+    
+    return
+
 def prepare_throughputs_for_skirt() :
     
     filters = ['hst_f218w',   'castor_uv',   'hst_f225w',   'hst_f275w',

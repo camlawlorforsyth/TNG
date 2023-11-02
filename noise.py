@@ -36,11 +36,15 @@ def add_noise_and_psf(subID, telescope, version='', psf=0.15*u.arcsec,
     outDir = 'SKIRT/SKIRT_processed_images_quenched/{}/'.format(subID)
     passbandsDir = 'passbands/'
     
+    # open the SKIRT output file, and get the plate scale for the SKIRT images
+    infile = '{}{}/{}_{}_total.fits'.format(inDir, subID, subID,
+        telescope.split('_')[0].upper())
+    with fits.open(infile) as hdu :
+        plate_scale = (hdu[0].header)['CDELT1']*u.arcsec/u.pix
+        data = hdu[0].data*u.MJy/u.sr
+    
     # get all the parameters for every telescope
     dictionary = get_noise()
-    
-    # define the plate scale for all synthetic SKIRT observations
-    plate_scale = 0.05*u.arcsec/u.pix
     
     if telescope == 'castor_wide' :
         exposures = np.array([1000, 1000, 2000])*u.s
@@ -98,9 +102,13 @@ def add_noise_and_psf(subID, telescope, version='', psf=0.15*u.arcsec,
     # get the area of a pixel on the sky, in arcsec^2
     pixel_area = np.square(plate_scale*u.pix)
     
+    # calculate the conversion factor PHOTFNU to get janskys [per pixel]
+    # from spatial electron flux electron/s/cm^2 [per pixel]
+    photfnus = calculate_photfnu(1*u.electron/u.s/np.square(u.cm), pivots,
+        widths, throughputs)
+    
     # get the background electrons per second per pixel
-    Bsky = fnu_to_spatial_electron_flux(bkg_Jy, pivots, widths,
-                                        throughputs)*area*pixel_area
+    Bsky = bkg_Jy*area*pixel_area/photfnus
     
     # get the background electrons per pixel over the entire exposure
     background_electrons = Bsky*exposures
@@ -114,80 +122,86 @@ def add_noise_and_psf(subID, telescope, version='', psf=0.15*u.arcsec,
     # get the number of reads, limiting a given exposure to 1000 s, as longer
     # exposures than 1000 s will be dominated by cosmic rays
     single_exposure = 1000*u.s
-    Nread = np.ceil(exposures/single_exposure)
+    Nreads = np.ceil(exposures/single_exposure)
     
-    # get the read noise electrons per pixel over the entire exposure
-    RR = read_noises*u.pix
-    read_electrons = Nread*RR
+    # get the read noise electrons per pixel
+    read_electrons = read_noises*u.pix
     
     # get the total non-source noise per pixel over the entire exposure
     nonsource_level = background_electrons + detector_electrons
     
-    # open the SKIRT output file
-    infile = '{}{}/{}_{}_total.fits'.format(inDir, subID, subID,
-        telescope.split('_')[0].upper())
-    with fits.open(infile) as hdu :
-        # hdr = hdu[0].header
-        # skirt_pixel_area = np.square((hdu[0].header)['CDELT1']*u.arcsec)
-        data = hdu[0].data*u.MJy/u.sr
-        # dim = data.shape
-    
     # check the brightness of the galaxy in the given bands
     # mags = []
     # for frame in data :
-    #     print(np.sum(frame*skirt_pixel_area).to(u.Jy))
+    #     print(np.sum(frame*pixel_area).to(u.Jy))
     #     m_AB = -2.5*np.log10(np.sum(frame*pixel_area).to(u.Jy)/(3631*u.Jy))*u.mag
     #     mags.append(m_AB.value)
     # print(mags)
     
     # convert the PSF FWHM (that we'll use to convolve the images) into pixels
-    sigma = psf/(2*np.sqrt(2*np.log(2)))
-    sigma_pix = sigma/plate_scale
+    sigma = psf/(2*np.sqrt(2*np.log(2))) # arcseconds
+    sigma_pix = sigma/plate_scale # pixels
     
-    for (filt, frame, pivot, width, throughput, exposure, level,
-         read) in zip(filters, data, pivots, widths, throughputs, exposures,
-            nonsource_level, read_electrons) :
+    for (filt, frame, pivot, width, throughput, exposure, level, Nread, RR,
+         photfnu) in zip(filters, data, pivots, widths, throughputs, exposures,
+                         nonsource_level, Nreads, read_electrons, photfnus) :
         
-        # get the noiseless snythetic SKIRT image in electron/s/cm^2/arcsec^2
-        source = fnu_to_spatial_electron_flux(frame, pivot, width, throughput)
+        # convert the noiseless synthetic SKIRT image to convenient units
+        frame = frame.to(u.Jy/np.square(u.arcsec)) # Jy/arcsec^2 [per pixel]
         
-        # get the noisless snythetics SKIRT image in electron [per pixel]
-        image = source*exposure*area*pixel_area
+        # get the noiseless synthetic SKIRT image
+        image = frame*exposure*area*pixel_area/photfnu # electron [per pixel]
         # plt.display_image_simple(image.value, vmin=None, vmax=None)
         
         # define the convolution kernel and convolve the image
         kernel = Gaussian2DKernel(sigma_pix.value)
-        convolved = convolve(image.value, kernel) # electron [per pixel]
-        # plt.display_image_simple(convolved, vmin=None, vmax=None)
+        convolved = convolve(image.value, kernel)*u.electron # electron [per pixel]
+        # plt.display_image_simple(convolved.value, vmin=None, vmax=None)
         
         # add the non-source level to the convolved image
-        noisey = convolved + level.value # electron [per pixel]
-        # plt.display_image_simple(noisey, vmin=None, vmax=None)
+        noisey = convolved + level # electron [per pixel]
+        # plt.display_image_simple(noisey.value, vmin=None, vmax=None)
         
         # sample from a Poisson distribution with the noisey data
-        sampled = np.random.poisson(noisey) # electron [per pixel]
-        # plt.display_image_simple(sampled, vmin=None, vmax=None)
-        
-        # subtract the background from the sampled image
-        subtracted = sampled - level.value # electron [per pixel]
-        # plt.display_image_simple(subtracted, vmin=None, vmax=None)
+        sampled = np.random.poisson(noisey.value)*u.electron # electron [per pixel]
+        # plt.display_image_simple(sampled.value, vmin=None, vmax=None)
         
         # add the RMS noise value
-        subtracted = np.random.normal(subtracted, scale=read.value)
+        sampled = np.random.normal(sampled.value,
+            scale=np.sqrt(Nread)*RR.value)*u.electron # electron [per pixel]
+        # plt.display_image_simple(sampled.value, vmin=None, vmax=None)
+        
+        # subtract the background from the sampled image
+        subtracted = sampled - level # electron [per pixel]
+        # plt.display_image_simple(subtracted.value, vmin=None, vmax=None)
+        
+        # determine the final noise
+        noise = np.sqrt(noisey.value +
+            Nread*np.square(RR.value))*u.electron # electron [per pixel]
         
         # convert back to janskys [per pixel]
-        prep = subtracted/exposure/area/pixel_area*u.electron
-        fnu = spatial_electron_flux_to_fnu(prep, pivot, width, throughput)
-        final = fnu*pixel_area
-        if display :
-            plt.display_image_simple(final.value, vmin=1e-10, vmax=1e-6)
+        # subtracted = subtracted/exposure/area*photfnu
+        # noise = noise/exposure/area*photfnu
+        # if display :
+        #     plt.display_image_simple(final.value, vmin=1e-10, vmax=1e-6)
+        #     plt.display_image_simple(noise.value, vmin=1e-9, vmax=1e-8)
         
         # save the output to file
         if save :
             os.makedirs(outDir, exist_ok=True)
+            
             outfile = '{}_{}.fits'.format(telescope, filt.split('_')[1])
-            hdu = fits.PrimaryHDU(final.value)
-            hdu.writeto(outDir + outfile)
+            save_cutout(subtracted.value, outDir + outfile,
+                        exposure.value, photfnu.value, plate_scale.value, 0.5)
+            
+            noise_outfile = '{}_{}_noise.fits'.format(telescope, filt.split('_')[1])
+            save_cutout(noise.value, outDir + noise_outfile,
+                        exposure.value, photfnu.value, plate_scale.value, 0.5)
+            
+            snr_outfile = '{}_{}_snr.png'.format(telescope, filt.split('_')[1])
+            plt.display_image_simple(subtracted.value/noise.value,
+                lognorm=False, vmin=0.5, vmax=10, save=True,
+                outfile=outDir + snr_outfile)
     
     return
 
@@ -235,6 +249,23 @@ def background_roman() :
                'roman_f146', 'roman_f158', 'roman_f184', 'roman_f213']
     
     return determine_l2_background(inDir, filters)
+
+def calculate_photfnu(electron_flux, lam_pivot, delta_lam,
+                      throughput, gain=1*u.electron/u.photon) :
+    
+    lam_pivot = lam_pivot.to(u.m) # convert from um to m
+    delta_lam = delta_lam.to(u.m) # convert from um to m
+    
+    # difference in wavelength to difference in frequency
+    delta_nu = (c.c*delta_lam/np.square(lam_pivot)).to(u.Hz)
+    
+    # calculate the photon flux in photons/s/cm^2/Hz
+    photnu = electron_flux/throughput/delta_nu/gain
+    
+    # calculate the flux density in janskys
+    photfnu = photnu.to(u.Jy, equivalencies=u.spectral_density(lam_pivot))
+    
+    return photfnu*u.s/u.electron*np.square(u.cm)
 
 def components_l2_background(waves) :
     # Sun-Earth L_2 Lagrange point
@@ -509,24 +540,6 @@ def flam_to_mag(waves, flam, response) :
     
     return -2.5*np.log10(fnu) - 48.6
 
-def fnu_to_spatial_electron_flux(fnu, lam_pivot, delta_lam, throughput,
-                                 gain=1*u.electron/u.photon) :
-    
-    lam_pivot = lam_pivot.to(u.m) # convert from um to m
-    delta_lam = delta_lam.to(u.m) # convert from um to m
-    
-    # difference in wavelength to difference in frequency
-    delta_nu = (c.c*delta_lam/np.square(lam_pivot)).to(u.Hz)
-    
-    # calculate the spatial photon flux in photons/s/cm^2/Hz/arcsec^2
-    photnu = fnu.to(u.photon/np.square(u.cm*u.arcsec)/u.s/u.Hz,
-                    equivalencies=u.spectral_density(lam_pivot))
-    
-    # calculate the electron flux in electons/s/cm^2/arcsec^2
-    spatial_electron_flux = photnu*throughput*delta_nu*gain
-    
-    return spatial_electron_flux
-
 def get_noise() :
     
     infile = 'noise/noise_components.txt'
@@ -585,23 +598,25 @@ def mag_to_Jy(mag) :
     mag = mag.to(u.mag/np.square(u.arcsec))
     return np.power(10, -0.4*(mag.value - 8.9))*u.Jy/np.square(u.arcsec)
 
-def spatial_electron_flux_to_fnu(spatial_electron_flux, lam_pivot, delta_lam,
-                                 throughput, gain=1*u.electron/u.photon) :
+def save_cutout(data, outfile, exposure, photfnu, scale, redshift) :
     
-    lam_pivot = lam_pivot.to(u.m) # convert from um to m
-    delta_lam = delta_lam.to(u.m) # convert from um to m
+    hdu = fits.PrimaryHDU(data)
     
-    # difference in wavelength to difference in frequency
-    delta_nu = (c.c*delta_lam/np.square(lam_pivot)).to(u.Hz)
+    hdr = hdu.header
+    hdr['Z'] = redshift
+    hdr.comments['Z'] = 'object spectroscopic redshift--by definition'
+    hdr['EXPTIME'] = exposure
+    hdr.comments['EXPTIME'] = 'exposure duration (seconds)--calculated'
+    hdr['PHOTFNU'] = photfnu
+    hdr.comments['PHOTFNU'] = 'inverse sensitivity, Jy*sec/electron'
+    hdr['SCALE'] = scale
+    hdr.comments['SCALE'] = 'Pixel size (arcsec) of output image'
+    hdr['BUNIT'] = 'electron'
+    hdr.comments['BUNIT'] = 'Physical unit of the array values'
     
-    # calculate the spatial photon flux in photons/s/cm^2/Hz/arcsec^2
-    photnu = spatial_electron_flux/throughput/delta_nu/gain
+    hdu.writeto(outfile)
     
-    # calculate the spatial flux density in janskys/arcsec^2
-    fnu = photnu.to(u.Jy/np.square(u.arcsec),
-                    equivalencies=u.spectral_density(lam_pivot))
-    
-    return fnu
+    return
 
 # import pprint
 # pprint.pprint(get_noise())
@@ -636,8 +651,14 @@ def spatial_electron_flux_to_fnu(spatial_electron_flux, lam_pivot, delta_lam,
 # add_noise_and_psf(198186, 'castor_ultradeep')
 # add_noise_and_psf(198186, 'roman_hlwas')
 
+# add_noise_and_psf(96771, 'castor_ultradeep')
+# add_noise_and_psf(96771, 'roman_hlwas')
 
-
+# subIDs = os.listdir('SKIRT/SKIRT_output_quenched')
+# for subID in subIDs :
+#     if subID != '14' :
+#         add_noise_and_psf(subID, 'castor_ultradeep')
+#         add_noise_and_psf(subID, 'roman_hlwas')
 
 def compare_raw_to_SKIRT(subIDfinal, snap, subID, Re, center) :
     
