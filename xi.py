@@ -2,7 +2,7 @@
 from os.path import exists
 import numpy as np
 
-from astropy.cosmology import Planck15 as cosmo
+from astropy.cosmology import FlatLambdaCDM
 import astropy.units as u
 import h5py
 from scipy.ndimage import gaussian_filter1d
@@ -11,6 +11,8 @@ from scipy.signal import savgol_filter
 from core import (add_dataset, bsPath, determine_mass_bin_indices,
                   get_particles, get_sf_particles)
 import plotting as plt
+
+cosmo = FlatLambdaCDM(H0=67.74, Om0=0.3089, Ob0=0.0486) # the TNG cosmology
 
 def determine_xi(simName, snapNum, redshift, time, snap, mpbsubID, center,
                  delta_t=100*u.Myr) :

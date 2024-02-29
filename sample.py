@@ -2,12 +2,14 @@
 from os.path import exists
 import numpy as np
 
-from astropy.cosmology import Planck15 as cosmo
+from astropy.cosmology import FlatLambdaCDM
 from astropy.table import Table, join
 import h5py
 import requests
 
 from core import add_dataset, bsPath, get, get_mpb_values,  mpbPath
+
+cosmo = FlatLambdaCDM(H0=67.74, Om0=0.3089, Ob0=0.0486) # the TNG cosmology
 
 def build_final_sample(simName='TNG50-1', snapNum=99) :
     

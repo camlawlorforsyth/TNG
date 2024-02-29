@@ -1,7 +1,7 @@
 
 import numpy as np
 
-from astropy.cosmology import Planck15 as cosmo
+from astropy.cosmology import FlatLambdaCDM
 import astropy.units as u
 import h5py
 from scipy.ndimage import gaussian_filter1d
@@ -10,6 +10,8 @@ from scipy.signal import savgol_filter
 from core import (bsPath, get_mpb_radii_and_centers, get_particles,
                   get_sf_particles)
 import plotting as plt
+
+cosmo = FlatLambdaCDM(H0=67.74, Om0=0.3089, Ob0=0.0486) # the TNG cosmology
 
 def compute_nabla_psi(redshift, masses, rs, radius, snap, delta_t=100*u.Myr) :
     

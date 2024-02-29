@@ -2,13 +2,14 @@
 from os.path import exists
 import numpy as np
 
-from astropy.cosmology import Planck15 as cosmo, z_at_value
+from astropy.cosmology import FlatLambdaCDM, z_at_value
 from astropy.table import Table
 import astropy.units as u
 import h5py
 import requests
 from scipy.interpolate import interp1d
 
+cosmo = FlatLambdaCDM(H0=67.74, Om0=0.3089, Ob0=0.0486) # the TNG cosmology
 solar_Z = 0.0127 # Wiersma+ 2009, MNRAS, 399, 574; used by TNG documentation
 
 def add_dataset(h5file, data, label, dtype=None) :

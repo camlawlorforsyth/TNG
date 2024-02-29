@@ -2,7 +2,7 @@
 from os.path import exists
 import numpy as np
 
-from astropy.cosmology import Planck15 as cosmo
+from astropy.cosmology import FlatLambdaCDM
 from astropy.table import Table
 import astropy.units as u
 import h5py
@@ -15,6 +15,8 @@ from core import (add_dataset, bsPath, determine_mass_bin_indices, find_nearest,
 import plotting as plt
 from projection import calculate_MoI_tensor, rotation_matrix_from_MoI_tensor
 from slack import send_message
+
+cosmo = FlatLambdaCDM(H0=67.74, Om0=0.3089, Ob0=0.0486) # the TNG cosmology
 
 import warnings
 warnings.filterwarnings('ignore', category=RuntimeWarning)
