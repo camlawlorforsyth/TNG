@@ -6,14 +6,15 @@ import catalogs
 # import concatenate
 import core
 import cutouts
-import psi
+import diagnostics
+# import psi
 import quenched
 import sample
 import satellite_time
 import sfhs
 import sfms
-import xi
-import zeta
+# import xi
+# import zeta
 
 def premain(simName, snapNum) :
     
@@ -81,9 +82,15 @@ def main(simName='TNG50-1', snapNum=99, hw=0.1, minNum=50, kernel=2) :
     satellite_time.determine_satellite_time(simName, snapNum)
     
     # compute various star formation related quantities of interest through time
-    zeta.zeta_for_sample(simName, snapNum)
-    xi.xi_for_sample(simName, snapNum)
-    psi.determine_psi(simName, snapNum)
+    diagnostics.find_control_sf_sample()
+    diagnostics.calculate_required_radial_profiles()
+    diagnostics.calculate_required_morphological_parameters()
+    # diagnostics.determine_diagnostics()                    # to delete
+    # diagnostics.determine_diagnostics_for_matched_sample() # to delete
+    
+    # zeta.zeta_for_sample(simName, snapNum) # to delete
+    # xi.xi_for_sample(simName, snapNum)     # to delete
+    # psi.determine_psi(simName, snapNum)    # to delete
     
     # save plots together - this can be deleted later
     # concatenate.concatenate_diagnostics(subIDs, masses)

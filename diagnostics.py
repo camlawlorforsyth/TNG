@@ -3,19 +3,343 @@ from os.path import exists
 import numpy as np
 
 import astropy.units as u
+from astropy.table import Table
 import h5py
 from pypdf import PdfWriter
+from scipy.ndimage import gaussian_filter1d
 # from scipy.stats import anderson_ksamp, ks_2samp
 # from scipy.interpolate import CubicSpline
 
 # from concatenate import concat_horiz
 from core import (add_dataset, find_nearest, get_particle_positions,
-                  get_sf_particles)
+                  get_particles, get_sf_particles)
 import plotting as plt
 
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning)
 warnings.filterwarnings('ignore', category=RuntimeWarning)
+
+def calculate_required_morphological_parameters(delta_t=100*u.Myr, version='2D',
+                                                quenched_pop=True) :
+    
+    # define the input and output files
+    infile = 'TNG50-1/TNG50-1_99_sample(t).hdf5'
+    profiles_file = 'TNG50-1/TNG50-1_99_massive_radial_profiles(t).hdf5'
+    C_SF_outfile = 'TNG50-1/TNG50-1_99_massive_C_SF(t).hdf5'
+    R_SF_outfile = 'TNG50-1/TNG50-1_99_massive_R_SF(t).hdf5'
+    Rinner_outfile = 'TNG50-1/TNG50-1_99_massive_Rinner(t).hdf5'
+    Router_outfile = 'TNG50-1/TNG50-1_99_massive_Router(t).hdf5'
+    
+    # get relevant information for the general sample
+    with h5py.File(infile, 'r') as hf :
+        times = hf['times'][:] # for determining active SF populations
+        subIDs = hf['subIDs'][:].astype(int)
+        logM = hf['logM'][:]
+        Res = hf['Re'][:]
+        centers = hf['centers'][:]
+    
+    # select massive galaxies
+    mask = (logM[:, -1] >= 9.5) # 1666 entries, but len(mask) = 8260
+    
+    # mask all attributes to select only the massive population
+    subIDs = subIDs[mask]     # (1666, 100)
+    logM = logM[mask]         # (1666, 100)
+    Res = Res[mask]           # (1666, 100)
+    centers = centers[mask]   # (1666, 100, 3)
+    
+    # use presaved arrays to determine exactly which galaxies need to have
+    # their morphological parameters computed
+    unique_quenched = np.load('locations_mask_quenched.npy') # (1666, 100), sum 4695
+    unique_sf = np.load('locations_mask_control_sf.npy')     # (1666, 100), sum 27763
+    
+    # write empty files which will hold the parameters
+    if not exists(C_SF_outfile) :
+        with h5py.File(C_SF_outfile, 'w') as hf :
+            add_dataset(hf, np.full((1666, 100), np.nan), 'C_SF')
+    if not exists(R_SF_outfile) :
+        with h5py.File(R_SF_outfile, 'w') as hf :
+            add_dataset(hf, np.full((1666, 100), np.nan), 'R_SF')
+    if not exists(Rinner_outfile) :
+        with h5py.File(Rinner_outfile, 'w') as hf :
+            add_dataset(hf, np.full((1666, 100), np.nan), 'Rinner')
+    if not exists(Router_outfile) :
+        with h5py.File(Router_outfile, 'w') as hf :
+            add_dataset(hf, np.full((1666, 100), np.nan), 'Router')
+    
+    # read in the required arrays
+    with h5py.File(C_SF_outfile, 'r') as hf :
+        # 4686 non-NaN quenchers, expect 4695 -> 9 missing
+        C_SF_array = hf['C_SF'][:]  # 26339 non-NaN SFers, expect 27763 -> 1424 missing
+    with h5py.File(R_SF_outfile, 'r') as hf :
+        # 4686 non-NaN quenchers -> 9 missing
+        R_SF_array = hf['R_SF'][:] # 26339 non-NaN SFers -> 1424 missing
+    with h5py.File(Rinner_outfile, 'r') as hf :
+        # 4692 non-NaN quenchers -> 3 missing
+        Rinner_array = hf['Rinner'][:] # 26339 non-NaN SFers -> 1424 missing
+    with h5py.File(Router_outfile, 'r') as hf :
+        # 4692 non-NaN quenchers -> 3 missing
+        Router_array = hf['Router'][:] # 26339 non-NaN SFers -> 1424 missing
+    with h5py.File(profiles_file, 'r') as hf :
+        radial_bin_centers = hf['midpoints'][:] # units of Re
+        sSFR_profiles = hf['sSFR_profiles'][:] # shape (1666, 100, 20)
+    
+    if quenched_pop :
+        # work on the quenched population first
+        for row in range(1666) :
+            for snap in range(100) :
+                if unique_quenched[row, snap] :
+                    # get all particles
+                    ages, masses, dx, dy, dz = get_particle_positions(
+                        'TNG50-1', 99, snap, subIDs[row, snap],
+                        centers[row, snap])
+                    
+                    # only proceed if the ages, masses, and distances are intact
+                    if ((ages is not None) and (masses is not None) and
+                        (dx is not None) and (dy is not None) and
+                        (dz is not None)) :
+                        
+                        if version == '2D' :
+                            rs = np.sqrt(np.square(dx) + np.square(dy))
+                        else :
+                            rs = np.sqrt(np.square(dx) + np.square(dy) +
+                                         np.square(dz))
+                        
+                        # get the SF particles
+                        _, sf_masses, sf_rs = get_sf_particles(ages, masses,
+                            rs, times[snap], delta_t=delta_t)
+                        
+                        # compute the morphological parameters
+                        C_SF = calculate_C_SF(sf_masses, sf_rs, Res[row, snap])
+                        R_SF = calculate_R_SF(masses, rs, sf_masses, sf_rs)
+                        Rinner = calculate_Rinner(radial_bin_centers,
+                                                  sSFR_profiles[row, snap])
+                        Router = calculate_Router(radial_bin_centers,
+                                                  sSFR_profiles[row, snap])
+                    else :
+                        C_SF = np.nan
+                        R_SF = np.nan
+                        Rinner = np.nan
+                        Router = np.nan
+                    
+                    # don't replace existing values
+                    if np.isnan(C_SF_array[row, snap]) :
+                        with h5py.File(C_SF_outfile, 'a') as hf :
+                            hf['C_SF'][row, snap] = C_SF
+                    if np.isnan(R_SF_array[row, snap]) :
+                        with h5py.File(R_SF_outfile, 'a') as hf :
+                            hf['R_SF'][row, snap] = R_SF
+                    if np.isnan(Rinner_array[row, snap]) :
+                        with h5py.File(Rinner_outfile, 'a') as hf :
+                            hf['Rinner'][row, snap] = Rinner
+                    if np.isnan(Router_array[row, snap]) :
+                        with h5py.File(Router_outfile, 'a') as hf :
+                            hf['Router'][row, snap] = Router
+            print('{} done'.format(row))
+    else :
+        # work on the control SF population next
+        for row in range(1666) :
+            for snap in range(100) :
+                if unique_sf[row, snap] :
+                    # get all particles
+                    ages, masses, dx, dy, dz = get_particle_positions(
+                        'TNG50-1', 99, snap, subIDs[row, snap],
+                        centers[row, snap])
+                    
+                    # only proceed if the ages, masses, and distances are intact
+                    if ((ages is not None) and (masses is not None) and
+                        (dx is not None) and (dy is not None) and
+                        (dz is not None)) :
+                        
+                        if version == '2D' :
+                            rs = np.sqrt(np.square(dx) + np.square(dy))
+                        else :
+                            rs = np.sqrt(np.square(dx) + np.square(dy) +
+                                         np.square(dz))
+                        
+                        # get the SF particles
+                        _, sf_masses, sf_rs = get_sf_particles(ages, masses,
+                            rs, times[snap], delta_t=delta_t)
+                        
+                        # compute the morphological parameters
+                        C_SF = calculate_C_SF(sf_masses, sf_rs, Res[row, snap])
+                        R_SF = calculate_R_SF(masses, rs, sf_masses, sf_rs)
+                        Rinner = calculate_Rinner(radial_bin_centers,
+                                                  sSFR_profiles[row, snap])
+                        Router = calculate_Router(radial_bin_centers,
+                                                  sSFR_profiles[row, snap])
+                    else :
+                        C_SF = np.nan
+                        R_SF = np.nan
+                        Rinner = np.nan
+                        Router = np.nan
+                    
+                    # don't replace existing values
+                    if np.isnan(C_SF_array[row, snap]) :
+                        with h5py.File(C_SF_outfile, 'a') as hf :
+                            hf['C_SF'][row, snap] = C_SF
+                    if np.isnan(R_SF_array[row, snap]) :
+                        with h5py.File(R_SF_outfile, 'a') as hf :
+                            hf['R_SF'][row, snap] = R_SF
+                    if np.isnan(Rinner_array[row, snap]) :
+                        with h5py.File(Rinner_outfile, 'a') as hf :
+                            hf['Rinner'][row, snap] = Rinner
+                    if np.isnan(Router_array[row, snap]) :
+                        with h5py.File(Router_outfile, 'a') as hf :
+                            hf['Router'][row, snap] = Router
+            print('{} done'.format(row))
+    
+    return
+
+def calculate_required_radial_profiles(simName='TNG50-1', snapNum=99,
+                                       delta_t=100*u.Myr, quenched_pop=True) :
+    
+    # define the input and output files
+    infile = 'TNG50-1/TNG50-1_99_sample(t).hdf5'
+    outfile = 'TNG50-1/TNG50-1_99_massive_radial_profiles(t).hdf5'
+    
+    # get relevant information for the general sample
+    with h5py.File(infile, 'r') as hf :
+        times = hf['times'][:] # for determining active SF populations
+        subIDs = hf['subIDs'][:].astype(int)
+        logM = hf['logM'][:]
+        Res = hf['Re'][:]
+        centers = hf['centers'][:]
+    
+    # select massive galaxies
+    mask = (logM[:, -1] >= 9.5) # 1666 entries, but len(mask) = 8260
+    
+    # mask all attributes to select only the massive population
+    subIDs = subIDs[mask]     # (1666, 100)
+    logM = logM[mask]         # (1666, 100)
+    Res = Res[mask]           # (1666, 100)
+    centers = centers[mask]   # (1666, 100, 3)
+    
+    # use presaved arrays to determine exactly which galaxies need to have
+    # their radial profiles computed
+    unique_quenched = np.load('locations_mask_quenched.npy') # (1666, 100), sum 4695
+    unique_sf = np.load('locations_mask_control_sf.npy')     # (1666, 100), sum 27763
+    
+    # write an empty file which will hold the computed radial profiles
+    if not exists(outfile) :
+        
+        # define the edges and center points of the radial bins
+        edges = np.linspace(0, 5, 21)
+        mids = []
+        for start, end in zip(edges, edges[1:]) :
+            mids.append(0.5*(start + end))
+        
+        # populate the helper file to be filled later
+        with h5py.File(outfile, 'w') as hf :
+            add_dataset(hf, edges, 'edges')
+            add_dataset(hf, np.array(mids), 'midpoints')
+            add_dataset(hf, np.full((1666, 100, 20), np.nan), 'sSFR_profiles')
+    
+    # read in the required arrays
+    with h5py.File(outfile, 'r') as hf :
+        edges = hf['edges'][:]
+        sSFR_profiles = hf['sSFR_profiles'][:]
+    
+    if quenched_pop :
+        # work on the quenched population first
+        for row in range(1666) :
+            for snap in range(100) :
+                if unique_quenched[row, snap] :
+                    
+                    # get the SFR and mass profiles
+                    SFR_profile, mass_profile, _, _, _ = determine_radial_profiles(
+                        'TNG50-1', 99, snap, times[snap], subIDs[row, snap],
+                        Res[row, snap], centers[row, snap], edges, 20,
+                        delta_t=delta_t)
+                    
+                    # don't replace existing values
+                    if np.all(np.isnan(sSFR_profiles[row, snap, :])) :
+                        # produces 93853 non-NaN values, 47 less than the
+                        # expected 4695*20 = 93900
+                        with h5py.File(outfile, 'a') as hf :
+                            hf['sSFR_profiles'][row, snap, :] = SFR_profile/mass_profile
+            print('{} done'.format(row))
+    else :
+        # work on the control SF population next
+        for row in range(1666) :
+            for snap in range(100) :
+                if unique_sf[row, snap] :
+                    
+                    # get the SFR and mass profiles
+                    SFR_profile, mass_profile, _, _, _ = determine_radial_profiles(
+                        'TNG50-1', 99, snap, times[snap], subIDs[row, snap],
+                        Res[row, snap], centers[row, snap], edges, 20,
+                        delta_t=delta_t)
+                    
+                    # don't replace existing values
+                    if np.all(np.isnan(sSFR_profiles[row, snap, :])) :
+                        # produces 526755 non-NaN values, 28505 less than the
+                        # expected 27763*20 = 555260
+                        with h5py.File(outfile, 'a') as hf :
+                            hf['sSFR_profiles'][row, snap, :] = SFR_profile/mass_profile
+            print('{} done'.format(row))
+    
+    return
+
+def determine_radial_profiles(simName, snapNum, snap, time, subID, Re, center,
+                              edges, length, delta_t=100*u.Myr) :
+    
+    # open the corresponding cutouts and get their particles
+    ages, masses, rs = get_particles(simName, snapNum, snap, subID, center)
+    
+    if (ages is not None) and (masses is not None) and (rs is not None) :
+        # mask all particles to within the maximum radius (default 5Re)
+        rs = rs/Re
+        max_Re = edges[-1]
+        ages = ages[rs <= max_Re]
+        masses = masses[rs <= max_Re]
+        rs = rs[rs <= max_Re]
+        
+        # find the total mass and area (in kpc^2) in each annulus
+        mass_profile, area_profile, nParticles = [], [], []
+        for start, end in zip(edges, edges[1:]) :
+            mass_in_bin = masses[(rs >= start) & (rs < end)]
+            mass = np.sum(mass_in_bin)
+            
+            nParticles.append(len(mass_in_bin))
+            mass_profile.append(mass)
+            
+            area = np.pi*(np.square(end*Re) - np.square(start*Re))
+            area_profile.append(area)
+        
+        # convert lists to arrays
+        nParticles, mass_profile = np.array(nParticles), np.array(mass_profile)
+        area_profile = np.array(area_profile)
+        
+        # get the SF particles
+        _, SF_masses, SF_rs = get_sf_particles(ages, masses, rs, time,
+                                               delta_t=delta_t)
+        
+        # find the SF mass in each annulus
+        SF_mass_profile, nSFparticles = [], []
+        for start, end in zip(edges, edges[1:]) :
+            SF_mass_in_bin = SF_masses[(SF_rs >= start) & (SF_rs < end)]
+            SF_mass = np.sum(SF_mass_in_bin)
+            
+            nSFparticles.append(len(SF_mass_in_bin))
+            SF_mass_profile.append(SF_mass)
+        
+        # convert lists to arrays
+        nSFparticles = np.array(nSFparticles)
+        SF_mass_profile = np.array(SF_mass_profile)
+        
+        # convert the length of time to years
+        SFR_profile = SF_mass_profile/(delta_t.to(u.yr).value)
+    else :
+        full_vals = np.full(length, np.nan)
+        SFR_profile, mass_profile, area_profile = full_vals, full_vals, full_vals
+        nParticles, nSFparticles = full_vals, full_vals
+    
+    return SFR_profile, mass_profile, area_profile, nParticles, nSFparticles
+
+
+
+
+
 
 def compare_diagnostics_and_radii() :
     
@@ -193,7 +517,102 @@ def compare_diagnostics_and_radii() :
     
     return
 
-def compute_xi(sf_masses, sf_rs, Re) :
+def calculate_C_SF(sf_masses, sf_rs, Re) :
+    
+    sf_mass_within_1kpc, _, sf_mass = compute_C_SF(sf_masses, sf_rs, Re)
+    
+    return sf_mass_within_1kpc/sf_mass
+
+def calculate_R_SF(masses, rs, sf_masses, sf_rs) :
+    
+    _, R50, _, _, sf_R50, _ = compute_R_SF(masses, rs, sf_masses, sf_rs)
+    
+    return sf_R50/R50
+
+def calculate_Rinner(bin_centers, profile, threshold=-10, slope=1) :
+    
+    if np.all(profile == 0) :
+        Rinner = -99
+    elif np.all(np.isnan(profile)) :
+        Rinner = -49
+    elif np.all(profile[:4] == 0) :
+        Rinner = bin_centers[3]
+    else :
+        # we want to move inwards from 1 Re, so mask the bin centers and
+        # profiles, and also take the logarithm of the profile for easier
+        # manipulation
+        bin_centers = bin_centers[:4]
+        profile = np.log10(profile[:4])
+        # plt.plot_simple_dumb(bin_centers, profile, xlabel=r'$r/R_{\rm e}$',
+        #                      ylabel='sSFR')
+        
+        # for NaNs, set the value in each bin to be below the minimum valid
+        # value appearing in the profile
+        mask = ~np.isfinite(profile)
+        profile[mask] = np.min(profile[np.isfinite(profile)]) - 0.5
+        
+        # take the derivative of the profile, using the bin centers as x values
+        deriv = np.gradient(profile, bin_centers)
+        
+        # find the locations where the derivative is more than our desired slope
+        locs = np.where(deriv >= slope)[0]
+        
+        if len(locs) > 0 :
+            # loop through every location, and check to see if the profile is
+            for loc in np.flip(locs) : # always less than the threshold value
+                if np.all(profile[:loc+1] <= threshold) : # before that location
+                    Rinner = bin_centers[loc] # if so, return that location
+                    break
+                else :
+                    Rinner = 0
+        else :         # if the derivative is never more than the desired slope,
+            Rinner = 0 # simply return the innermost radius
+    
+    return Rinner
+
+def calculate_Router(bin_centers, profile, threshold=-10.5, slope=-1) :
+    
+    if np.all(profile == 0) :
+        Router = -99
+    elif np.all(np.isnan(profile)) :
+        Router = -49
+    elif np.all(profile[4:] == 0) :
+        Router = bin_centers[4]
+    else :
+        # we want to move outwards from 1 Re, so mask the bin centers and
+        # profiles, and also take the logarithm of the profile for easier
+        # manipulation
+        bin_centers = bin_centers[4:]
+        profile = np.log10(profile[4:])
+        # plt.plot_simple_dumb(bin_centers, profile, xlabel=r'$r/R_{\rm e}$',
+        #                      ylabel='sSFR')
+        
+        # for NaNs, set the value in each bin to be below the minimum valid
+        # value appearing in the profile
+        mask = ~np.isfinite(profile)
+        profile[mask] = np.min(profile[np.isfinite(profile)]) - 0.5
+        
+        # take the derivative of the profile, using the bin centers as x values
+        deriv = np.gradient(profile, bin_centers)
+        
+        # find the locations where the derivative is less than our desired slope
+        locs = np.where(deriv <= slope)[0]
+        
+        if len(locs) > 0 :
+            # loop through every location, and check to see if the profile is
+            for loc in locs : # always less than the threshold value beyond
+                if np.all(profile[loc:] <= threshold) : # that location
+                    Router = bin_centers[loc] # if so, return that location
+                    break
+                else :
+                    Router = 5
+        else :         # if the derivative is never less than the desired slope,
+            Router = 5 # simply return the outermost radius
+    
+    return Router
+
+def compute_C_SF(sf_masses, sf_rs, Re) :
+    # determine the concentration of SF
     
     if (len(sf_masses) == 0) and (len(sf_rs) == 0) :
         sf_mass_within_1kpc, sf_mass_within_tenthRe = np.nan, np.nan
@@ -205,7 +624,8 @@ def compute_xi(sf_masses, sf_rs, Re) :
     
     return sf_mass_within_1kpc, sf_mass_within_tenthRe, sf_mass
 
-def compute_zeta(masses, rs, sf_masses, sf_rs) :
+def compute_R_SF(masses, rs, sf_masses, sf_rs) :
+    # determine the disk size ratio
     
     if (len(masses) == 0) and (len(rs) == 0) :
         stellar_half_radius = np.nan
@@ -237,6 +657,169 @@ def compute_zeta(masses, rs, sf_masses, sf_rs) :
     
     return (stellar_tenth_radius, stellar_half_radius, stellar_ninetieth_radius,
             sf_tenth_radius, sf_half_radius, sf_ninetieth_radius)
+
+def determine_morphological_parameters(delta_t=100*u.Myr, version='2D') :
+    
+    infile = 'TNG50-1/TNG50-1_99_sample(t).hdf5'
+    profiles_file = 'TNG50-1/TNG50-1_99_profiles(t).hdf5'
+    # C_SF_outfile = 'TNG50-1/C_SF(t).hdf5' # for massive quenched galaxies
+    # R_SF_outfile = 'TNG50-1/R_SF(t).hdf5' # for massive quenched galaxies
+    # R_inner_outfile = 'TNG50-1/R_inner(t).hdf5' # for massive quenched galaxies
+    # R_outer_outfile = 'TNG50-1/R_outer(t).hdf5' # for massive quenched galaxies
+    outfile = 'TNG50-1/morphological_parameters_quenched.fits'
+    
+    # get basic information about the sample, where some parameters are a
+    # function of time
+    with h5py.File(infile, 'r') as hf :
+        redshifts = hf['redshifts'][:]
+        times = hf['times'][:] # for determining active SF populations
+        subIDs = hf['subIDs'][:].astype(int)
+        logM = hf['logM'][:]
+        Res = hf['Re'][:]
+        centers = hf['centers'][:]
+        SFHs = hf['SFH'][:]
+        ionsets = hf['onset_indices'][:].astype(int)
+        tonsets = hf['onset_times'][:]
+        iterms = hf['termination_indices'][:].astype(int)
+        tterms = hf['termination_times'][:]
+        quenched = hf['quenched'][:]
+    
+    # !!! January 29, 2024 -> see if this can be computed "on the fly," or is
+    # it truly better to save out to an array? this is a large file, and
+    # reading it in is slow every time the code has to be run
+    # get radial profile information, as a function of time
+    with h5py.File(profiles_file, 'r') as hf :
+        radial_bin_centers = hf['mids'][:] # units of Re
+        mass_profiles = hf['mass_profiles'][:] # shape (8260, 100, 20)
+        SFR_profiles = hf['SFR_profiles'][:]   # shape (8260, 100, 20)
+    
+    # select the quenched galaxies
+    mask = (logM[:, -1] >= 9.5) & quenched # 278 entries, but len(mask) = 8260
+    
+    # mask all attributes to select only the quenched population
+    subIDs = subIDs[mask]
+    logM = logM[mask]
+    Res = Res[mask]
+    centers = centers[mask]
+    ionsets = ionsets[mask]
+    tonsets = tonsets[mask]
+    iterms = iterms[mask]
+    tterms = tterms[mask]
+    SFHs = SFHs[mask]
+    sSFR_radial_profiles = (SFR_profiles/mass_profiles)[mask] # shape (278, 100, 20)
+    
+    imids = np.full(278, -1)
+    SFR_onset_fractions_at_midpoint = np.full(278, np.nan)
+    for i, (subIDfinal, SFH, ionset, iterm) in enumerate(zip(
+            subIDs[:, -1], SFHs, ionsets, iterms)) :
+        
+        SFH = gaussian_filter1d(SFH, 2) # smooth the SFH, as we've typically done
+        
+        # to create SKIRT input:
+        # ilate = ionset + np.where(SFH[ionset:]/np.max(SFH[ionset:]) < 0.25)[0][0]
+        # but note this does not work for subIDs 514274, 656524, 657979, 680429,
+        # as they don't ever dip below 25% of SFR_onset (ie. reduce by 75% of SFR_onset)
+        
+        # !!! January 29, 2024
+        # subID 43 wasn't used to create SKIRT synthetic imaging, for whatever
+        # reason? -> try to track this down
+        
+        # for testing of support vector machines, look for drop of 50% of SFR_onset
+        SFR_onset = SFH[ionset]
+        imid = ionset + np.where(SFH[ionset:]/SFR_onset < 0.5)[0][0]
+        
+        # record the fraction of SFR_onset at that point
+        fraction_of_SFR_onset = SFH[imid]/SFR_onset
+        
+        # record the midpoint snapshot for future use, and the SFR fraction
+        # at midpoint
+        imids[i] = imid
+        SFR_onset_fractions_at_midpoint[i] = fraction_of_SFR_onset
+    
+    # check the distribution -> low values around ~0.3? really?
+    # plt.histogram(SFR_onset_fractions_at_midpoint,
+    #               r'${\rm SFR}_{\rm onset}$ fraction at midpoint')
+    # sort = np.argsort(SFR_onset_fractions_at_midpoint)
+    # print(subIDs[:, -1][sort])
+    # NOTE: by visual inspection, values with low (~0.3) SFR_onset fractions
+    # quench very rapidly, which makes sense (e.g., subIDs 362994, 167434, etc.)
+    # plt.plot_simple_dumb(tterms - tonsets, SFR_onset_fractions_at_midpoint,
+    #     xlabel = 'Quenching Episode Length (Gyr)',
+    #     ylabel = r'Fraction of ${\rm SFR}_{\rm onset}$ at midpoint')
+    
+    # for subIDfinal, ionset, imid, iterm, check in zip(subIDs[:, -1], ionsets,
+    #     imids, iterms, imids<=iterms) :
+    #     print(subIDfinal, ionset, imid, iterm, check)
+    
+    # determine the redshifts that correspond to the midway points
+    z_mids = redshifts[imids]
+    # plt.histogram(z_mids, r'$z$')
+    
+    # get subIDs, stellar masses, sizes, centers midway through quenching
+    firstDim = np.arange(278)
+    subIDs_midway = subIDs[firstDim, imids]
+    logM_midway = logM[firstDim, imids]
+    Re_midway = Res[firstDim, imids] # ckpc/h
+    centers_midway = centers[firstDim, imids]
+    sSFR_radial_profiles_midway = sSFR_radial_profiles[firstDim, imids]
+    
+    # !!! generalize to loop through the quenching episode for every galaxy,
+    # as opposed to just at the midway point
+    # loop over every quenched galaxy's midway point, calculating morphological
+    # parameters
+    C_SFs = np.full(278, np.nan)
+    R_SFs = np.full(278, np.nan)
+    Rinners = np.full(278, np.nan)
+    Routers = np.full(278, np.nan)
+    for i, (subIDfinal, imid, sub, mass, rad, cent, profile) in enumerate(zip(
+        subIDs[:, -1], imids, subIDs_midway, logM_midway, Re_midway,
+        centers_midway, sSFR_radial_profiles_midway)) :
+        
+        # get all particles
+        ages, masses, dx, dy, dz = get_particle_positions('TNG50-1', 99, imid,
+            sub, cent)
+        
+        # only proceed if the ages, masses, and distances are intact
+        if ((ages is not None) and (masses is not None) and
+            (dx is not None) and (dy is not None) and
+            (dz is not None)) :
+            
+            if version == '2D' :
+                rs = np.sqrt(np.square(dx) + np.square(dy))
+            else :
+                rs = np.sqrt(np.square(dx) + np.square(dy) +
+                             np.square(dz))
+            
+            # get the SF particles
+            _, sf_masses, sf_rs = get_sf_particles(ages, masses, rs,
+                times[imid], delta_t=delta_t)
+            
+            # compute the morphological parameters
+            C_SF = calculate_C_SF(sf_masses, sf_rs, rad)
+            R_SF = calculate_R_SF(masses, rs, sf_masses, sf_rs)
+            Rinner = calculate_Rinner(radial_bin_centers, profile)
+            Router = calculate_Router(radial_bin_centers, profile)
+        else :
+            C_SF = np.nan
+            R_SF = np.nan
+            Rinner = np.nan
+            Router = np.nan
+        
+        C_SFs[i] = C_SF
+        R_SFs[i] = R_SF
+        Rinners[i] = Rinner
+        Routers[i] = Router
+    
+    table = Table([subIDs[:, -1], z_mids, SFR_onset_fractions_at_midpoint,
+                   logM_midway, C_SFs, R_SFs, Rinners, Routers],
+                  names=('subID', 'redshift', 'SFR_onset fraction', 'logM',
+                         'C_SF', 'R_SF', 'Rinner', 'Router'))
+    table.write(outfile)
+    
+    # work on SF matched mass sample, and compute morph. parameters for them
+    # as well, in a similar manner as above
+    
+    return
 
 def determine_diagnostics(delta_t=100*u.Myr, version='2D') :
     
@@ -344,10 +927,10 @@ def determine_diagnostics(delta_t=100*u.Myr, version='2D') :
                         
                         # compute the diagnostics
                         (sf_mass_within_1kpc, sf_mass_within_tenthRe,
-                         sf_mass) = compute_xi(sf_masses, sf_rs, Re)
+                         sf_mass) = compute_C_SF(sf_masses, sf_rs, Re)
                         
                         (R10, R50, R90,
-                         sf_R10, sf_R50, sf_R90) = compute_zeta(masses, rs,
+                         sf_R10, sf_R50, sf_R90) = compute_R_SF(masses, rs,
                             sf_masses, sf_rs)
                     else : # otherwise append NaNs
                         sf_mass_within_1kpc = np.nan
@@ -479,10 +1062,10 @@ def determine_diagnostics_for_matched_sample(version='2D') :
                         
                         # compute the diagnostics
                         (sf_mass_within_1kpc, sf_mass_within_tenthRe,
-                         sf_mass) = compute_xi(sf_masses, sf_rs, Re)
+                         sf_mass) = compute_C_SF(sf_masses, sf_rs, Re)
                         
                         (R10, R50, R90,
-                         sf_R10, sf_R50, sf_R90) = compute_zeta(masses, rs,
+                         sf_R10, sf_R50, sf_R90) = compute_R_SF(masses, rs,
                             sf_masses, sf_rs)
                         
                         # populate the values in the output file
@@ -605,27 +1188,27 @@ def find_average_diagnostic_values() :
     # print(np.percentile(uni_zeta_first, [16, 50, 84]))
     # print(np.nanpercentile(uni_zeta_second, [16, 50, 84]))
     # plt.histogram_multi([oi_xi_full, oi_xi_first, oi_xi_second],
-    #     r'$\xi = {\rm SFR}_{<1~{\rm kpc}}/{\rm SFR}_{\rm total}$',
+    #     r'$C_{\rm SF} = {\rm SFR}_{<1~{\rm kpc}}/{\rm SFR}_{\rm total}$',
     #     ['k', 'r', 'b'], ['-', '--', '--'],
     #     ['full', 'first half', 'second half'], title='outside-in')
     # plt.histogram_multi([oi_zeta_full, oi_zeta_first, oi_zeta_second],
-    #     r'$\zeta = R_{{\rm e}_{*, {\rm SF}}}/R_{{\rm e}_{*, {\rm total}}}$',
+    #     r'$R_{\rm SF} = R_{{\rm e}_{*, {\rm SF}}}/R_{{\rm e}_{*, {\rm total}}}$',
     #     ['k', 'r', 'b'], ['-', '--', '--'],
     #     ['full', 'first half', 'second half'], title='outside-in')
     # plt.histogram_multi([io_xi_full, io_xi_first, io_xi_second],
-    #     r'$\xi = {\rm SFR}_{<1~{\rm kpc}}/{\rm SFR}_{\rm total}$',
+    #     r'$C_{\rm SF} = {\rm SFR}_{<1~{\rm kpc}}/{\rm SFR}_{\rm total}$',
     #     ['k', 'r', 'b'], ['-', '--', '--'],
     #     ['full', 'first half', 'second half'], title='inside-out')
     # plt.histogram_multi([io_zeta_full, io_zeta_first, io_zeta_second],
-    #     r'$\zeta = R_{{\rm e}_{*, {\rm SF}}}/R_{{\rm e}_{*, {\rm total}}}$',
+    #     r'$R_{\rm SF} = R_{{\rm e}_{*, {\rm SF}}}/R_{{\rm e}_{*, {\rm total}}}$',
     #     ['k', 'r', 'b'], ['-', '--', '--'],
     #     ['full', 'first half', 'second half'], title='inside-out')
     # plt.histogram_multi([uni_xi_full, uni_xi_first, uni_xi_second],
-    #     r'$\xi = {\rm SFR}_{<1~{\rm kpc}}/{\rm SFR}_{\rm total}$',
+    #     r'$C_{\rm SF} = {\rm SFR}_{<1~{\rm kpc}}/{\rm SFR}_{\rm total}$',
     #     ['k', 'r', 'b'], ['-', '--', '--'],
     #     ['full', 'first half', 'second half'], title='uniform')
     # plt.histogram_multi([uni_zeta_full, uni_zeta_first, uni_zeta_second],
-    #     r'$\zeta = R_{{\rm e}_{*, {\rm SF}}}/R_{{\rm e}_{*, {\rm total}}}$',
+    #     r'$R_{\rm SF} = R_{{\rm e}_{*, {\rm SF}}}/R_{{\rm e}_{*, {\rm total}}}$',
     #     ['k', 'r', 'b'], ['-', '--', '--'],
     #     ['full', 'first half', 'second half'], title='uniform')
     
@@ -634,7 +1217,7 @@ def find_average_diagnostic_values() :
     # io_xi_weight = np.ones(len(io_xi_full))/len(io_xi_full)
     # uni_xi_weight = np.ones(len(uni_xi_full))/len(uni_xi_full)
     # plt.histogram_multi([oi_xi_full, io_xi_full, uni_xi_full],
-    #     r'$\xi = {\rm SFR}_{<1~{\rm kpc}}/{\rm SFR}_{\rm total}$',
+    #     r'$C_{\rm SF} = {\rm SFR}_{<1~{\rm kpc}}/{\rm SFR}_{\rm total}$',
     #     ['k', 'r', 'b'], ['-', '--', '--'],
     #     ['outside-in', 'inside-out', 'uniform'],
     #     [oi_xi_weight, io_xi_weight, uni_xi_weight])
@@ -642,27 +1225,27 @@ def find_average_diagnostic_values() :
     # io_zeta_weight = np.ones(len(io_zeta_full))/len(io_zeta_full)
     # uni_zeta_weight = np.ones(len(uni_zeta_full))/len(uni_zeta_full)
     # plt.histogram_multi([oi_zeta_full, io_zeta_full, uni_zeta_full],
-    #     r'$\zeta = R_{{\rm e}_{*, {\rm SF}}}/R_{{\rm e}_{*, {\rm total}}}$',
+    #     r'$R_{\rm SF} = R_{{\rm e}_{*, {\rm SF}}}/R_{{\rm e}_{*, {\rm total}}}$',
     #     ['k', 'r', 'b'], ['-', '--', '--'],
     #     ['outside-in', 'inside-out', 'uniform'],
     #     [oi_zeta_weight, io_zeta_weight, uni_zeta_weight])
     
     '''
-    # xi and zeta values are from different distributions when comparing
+    # C_SF and R_SF values are from different distributions when comparing
     # outside-in to inside-out
     # print(ks_2samp(oi_xi_full, io_xi_full))
     # print(ks_2samp(oi_zeta_full, io_zeta_full))
     # print(anderson_ksamp([oi_xi_full, io_xi_full]))
     # print(anderson_ksamp([oi_zeta_full, io_zeta_full]))
     
-    # xi and zeta values are from different distributions when comparing
+    # C_SF and R_SF values are from different distributions when comparing
     # outside-in to uniform
     # print(ks_2samp(oi_xi_full, uni_xi_full))
     # print(ks_2samp(oi_zeta_full, uni_zeta_full))
     # print(anderson_ksamp([oi_xi_full, uni_xi_full]))
     # print(anderson_ksamp([oi_zeta_full, uni_zeta_full]))
     
-    # xi and zeta values are from different distributions when comparing
+    # C_SF and R_SF values are from different distributions when comparing
     # inside-out to uniform, but are more similar than the other comparisons
     # print(ks_2samp(io_xi_full, uni_xi_full))
     # print(ks_2samp(io_zeta_full, uni_zeta_full))
@@ -780,6 +1363,211 @@ def find_matched_sample() :
     
     return
 
+def find_control_sf_sample(plot_SFHs=False) :
+    # !!! February 27th, 2024
+    # this should (effectively) replace the function find_matched_sample above
+    
+    '''
+    imids = np.array([35, 67, 44, 49, 81, 86, 68, 61, 50, 23, # maybe save
+                      60, 60, 59, 57, 48, 65, 54, 34, 34, 48, # imids to file,
+                      70, 50, 31, 36, 94, 70, 44, 41, 67, 47, # that way they
+                      44, 64, 37, 35, 44, 41, 37, 56, 44, 78, # can be accessed
+                      32, 41, 66, 31, 73, 42, 66, 56, 53, 87, # in a better
+                       7, 57, 76, 54, 43, 45, 71, 66, 59, 36, # way, cause
+                      37, 77, 53, 67, 55, 57, 42, 36, 82, 60, # this isn't
+                      39, 58, 60, 61, 50, 47, 96, 87, 50, 42, # ideal right now
+                      58, 46, 66, 54, 41, 62, 77, 57, 67, 79,
+                      64, 84, 54, 47, 61, 56, 57, 65, 51, 59,
+                      42, 57, 42, 85, 61, 36, 29, 53, 57, 54,
+                      63, 43, 52, 89, 60, 43, 44, 49, 44, 84,
+                      95, 51, 54, 45, 71, 57, 42, 42, 50, 92,
+                      52, 48, 40, 70, 58, 61, 52, 44, 78, 80,
+                      50, 46, 50, 60, 26, 82, 41, 73, 69, 55,
+                      69, 65, 62, 76, 71, 48, 47, 86, 68, 46,
+                      74, 65, 70, 44, 52, 35, 58, 68, 45, 40,
+                      24, 72, 85, 48, 90, 54, 58, 39, 68, 55,
+                      44, 81, 77, 70, 44, 60, 51, 44, 54, 66,
+                      54, 54, 45, 29, 75, 70, 47, 61, 44, 62,
+                      86, 52, 50, 35, 48, 75, 53, 71, 93, 85,
+                      96, 51, 77, 37, 36, 55, 77, 71, 72, 76,
+                      80, 41, 38, 38, 64, 28, 69, 84, 53, 96,
+                      64, 56, 87, 58, 69, 70, 39, 77, 77, 71,
+                      66, 63, 69, 85, 60, 72, 55, 81, 68, 49,
+                      91, 75, 59, 59, 65, 94, 89, 83, 92, 63,
+                      49, 74, 97, 79, 97, 96, 79, 81, 75, 83,
+                      93, 60, 96, 71, 77, 85, 70, 71])
+    '''
+    
+    infile = 'TNG50-1/TNG50-1_99_sample(t).hdf5'
+    
+    # get basic information about the sample, where some parameters are a
+    # function of time
+    with h5py.File(infile, 'r') as hf :
+        redshifts = hf['redshifts'][:]
+        times = hf['times'][:] # for determining active SF populations
+        subIDs = hf['subIDs'][:].astype(int)
+        # subIDfinals = hf['SubhaloID'][:]
+        logM = hf['logM'][:]
+        # Res = hf['Re'][:]
+        # centers = hf['centers'][:]
+        SFHs = hf['SFH'][:]
+        SFMS = hf['SFMS'][:].astype(bool) # (boolean) SFMS at each snapshot
+        ionsets = hf['onset_indices'][:].astype(int)
+        tonsets = hf['onset_times'][:]
+        iterms = hf['termination_indices'][:].astype(int)
+        tterms = hf['termination_times'][:]
+        quenched = hf['quenched'][:]
+    
+    # select massive galaxies
+    mask = (logM[:, -1] >= 9.5) # 1666 entries, but len(mask) = 8260
+    
+    # mask all attributes to select only the massive population
+    subIDs = subIDs[mask]     # (1666, 100)
+    logM = logM[mask]         # (1666, 100)
+    # Res = Res[mask]           # (1666, 100)
+    # centers = centers[mask]   # (1666, 100, 3)
+    ionsets = ionsets[mask]   # (1666)
+    tonsets = tonsets[mask]   # (1666)
+    iterms = iterms[mask]     # (1666)
+    tterms = tterms[mask]     # (1666)
+    SFHs = SFHs[mask]         # (1666, 100)
+    SFMS = SFMS[mask]         # (1666, 100)
+    quenched = quenched[mask] # (1666)
+    
+    if not exists('locations_mask_quenched.npy') :
+        # create a simple mask to select all quenching episode locations
+        unique_quenched = np.full((1666, 100), False)
+        for i, (status, ionset, iterm) in enumerate(zip(quenched, ionsets, iterms)) :
+            if status :
+                unique_quenched[i, ionset:iterm+1] = True
+        np.save('locations_mask_quenched.npy', unique_quenched) # sum = 4695 = 4417 + 278
+    
+    # get parameters for quenching sample
+    quenched_subIDs = subIDs[:, -1][quenched]
+    quenched_logM = logM[quenched]
+    quenched_SFHs = SFHs[quenched]
+    quenched_ionsets = ionsets[quenched]
+    quenched_tonsets = tonsets[quenched]
+    quenched_iterms = iterms[quenched]
+    quenched_tterms = tterms[quenched]
+    
+    # loop through all quenched galaxies
+    N_always_on_SFMS_array = []
+    N_similar_masses = []
+    N_finals = []
+    unique_sf = np.full((1666, 100), False)
+    all_quenched_subIDs = []
+    all_control_subIDs = []
+    all_episode_progresses = []
+    all_redshifts = []
+    all_masses = []
+    for (quenched_subID, quenched_mass, quenched_SFH,
+         ionset, tonset, iterm, tterm) in zip(quenched_subIDs,
+         quenched_logM, quenched_SFHs, quenched_ionsets, quenched_tonsets,
+         quenched_iterms, quenched_tterms) :
+        
+        # get the stellar mass of the quenched galaxy at onset and termination
+        quenched_logM_onset = quenched_mass[ionset]
+        quenched_logM_term = quenched_mass[iterm]
+        
+        # find galaxies that are on the SFMS from onset until termination
+        always_on_SFMS = np.all(SFMS[:, ionset:iterm+1] > 0, axis=1) # (1666)
+        N_always_on_SFMS = np.sum(always_on_SFMS)
+        N_always_on_SFMS_array.append(N_always_on_SFMS)
+        
+        # compare stellar masses for all galaxies, looking for small differences
+        similar_mass = (np.abs(logM[:, ionset] - quenched_logM_onset) <= 0.1) # (1666)
+        N_similar_mass = np.sum(similar_mass)
+        N_similar_masses.append(N_similar_mass)
+        
+        # create a final mask where both conditions are true
+        final = (similar_mass & always_on_SFMS) # (1666)
+        N_final = np.sum(final)
+        N_finals.append(N_final)
+        
+        if N_final > 0 : # 13 galaxies don't have any
+            # create a simple mask to select all unique locations
+            unique_sf[np.argwhere(final), ionset:iterm] = True
+            
+            # determine the length of the quenching episode
+            episode_duration_Gyr = tterm - tonset
+            
+            # loop over every control SF galaxy for the quenched galaxy
+            for loc in np.argwhere(final) :
+                control_sf_subIDfinal = subIDs[loc, -1][0] # get the SF subID
+                for snap in range(ionset, iterm+1) :
+                    # determine the progress through the quenching episode
+                    # at each snapshot within the episode
+                    episode_progress = (times[snap] - tonset)/episode_duration_Gyr
+                    
+                    # determine the redshift and stellar mass at the snapshot
+                    redshift_at_snap = redshifts[snap]
+                    mass = logM[loc, snap][0]
+                    
+                    # append those values for future use
+                    all_quenched_subIDs.append(quenched_subID)
+                    all_control_subIDs.append(control_sf_subIDfinal)
+                    all_episode_progresses.append(episode_progress)
+                    all_redshifts.append(redshift_at_snap)
+                    all_masses.append(mass)
+        else : # append placeholders for the 13 galaxies without control SFs
+            all_quenched_subIDs.append(quenched_subID)
+            all_control_subIDs.append(-1)
+            all_episode_progresses.append(-1.0)
+            all_redshifts.append(-1.0)
+            all_masses.append(-1.0)
+        
+        # plot companion galaxies relative to the quenched galaxy (requires one
+        # always-on-the-SFMS similar mass companion)
+        if (N_final > 0) and plot_SFHs : # 13 galaxies don't have any
+            
+            # prepare input arrays for plotting
+            xs = [times]*(1 + N_final)
+            ys = [gaussian_filter1d(quenched_SFH, 2)]
+            for SFH in SFHs[final] :
+                ys.append(gaussian_filter1d(SFH, 2))
+            labels = ['quenched'] + ['']*N_final
+            colors = ['k'] + ['grey']*N_final
+            markers = ['']*(1 + N_final)
+            styles = ['-'] + ['--']*N_final
+            alphas = [1] + [0.5]*N_final
+            
+            outfile = 'compare_with_control_SFMS_galaxies/subID_{}.png'.format(quenched_subID)
+            plt.plot_simple_multi_with_times(xs, ys, labels, colors, markers,
+                styles, alphas, np.nan, tonset, tterm, None, None,
+                scale='linear', xmin=-0.1, xmax=13.8, xlabel=r'$t$ (Gyr)',
+                ylabel=r'SFR (${\rm M}_{\odot}$ yr$^{-1}$)',
+                outfile=outfile, save=True)
+            
+            mass_diff_onset = np.abs(logM[:, ionset][final] - quenched_logM_onset)
+            mass_diff_term = np.abs(logM[:, iterm][final] - quenched_logM_term)
+            print(np.median(mass_diff_onset), np.median(mass_diff_term))
+    
+    if not exists('all_control_sf_points.fits') :
+        t = Table([all_quenched_subIDs, all_control_subIDs,
+                   all_episode_progresses, all_redshifts, all_masses],
+                  names=('quenched_subID', 'control_subID',
+                         'episode_progress', 'redshift', 'logM'))
+        t.write('all_control_sf_points.fits')
+    
+    if not exists('locations_mask_control_sf.npy') :
+        np.save('locations_mask_control_sf.npy', unique_sf) # sum = 27763
+    
+    if not exists('check-N_always_on_SFMS-during-quenching-episode.fits') :
+        t = Table([quenched_subIDs, quenched_logM[np.arange(278), quenched_ionsets],
+                   quenched_ionsets, quenched_iterms,
+                   quenched_iterms - quenched_ionsets + 1, tonsets[quenched],
+                   tterms[quenched], tterms[quenched] - tonsets[quenched],
+                   N_always_on_SFMS_array, N_similar_masses, N_finals,
+                   (quenched_iterms - quenched_ionsets + 1)*N_finals],
+                  names=('subID', 'logM_onset', 'ionset', 'iterm',
+                          'episode_duration_snaps', 'tonset', 'tterm',
+                          'episode_duration_Gyr', 'N_always_on_SFMS',
+                          'N_similar_mass_01dex', 'N_final', 'N_compare'))
+        t.write('check-N_always_on_SFMS-during-quenching-episode.fits')
+    
+    return
+
 def get_locations_of_potential_starbursts() :
     
     outfile = 'TNG50-1/TNG50-1_99_potential_starburst_locations.hdf5'
@@ -815,11 +1603,11 @@ def get_locations_of_potential_starbursts() :
 def get_values_for_plotting(comparison_dict, quenched_dict, xmetric, ymetric,
                             index, mech, version, logx=False, logy=True) :
     
-    labels = {'xis':r'$\xi = {\rm SFR}_{<1~{\rm kpc}}/{\rm SFR}_{\rm total}$',
-              'alt_xis':r'$\xi = {\rm SFR}_{<0.1~R_{\rm e}}/{\rm SFR}_{\rm total}$',
-              'zetas':r'$\log{(\zeta = R_{{\rm e}_{*, {\rm SF}}}/R_{{\rm e}_{*, {\rm total}}})}$',
-              'R10_zetas':r'$\log{(\zeta = R_{{\rm 10}_{*, {\rm SF}}}/R_{{\rm 10}_{*, {\rm total}}})}$',
-              'R90_zetas':r'$\log{(\zeta = R_{{\rm 90}_{*, {\rm SF}}}/R_{{\rm 90}_{*, {\rm total}}})}$'}
+    labels = {'xis':r'$C_{\rm SF} = {\rm SFR}_{<1~{\rm kpc}}/{\rm SFR}_{\rm total}$',
+              'alt_xis':r'$C_{\rm SF} = {\rm SFR}_{<0.1~R_{\rm e}}/{\rm SFR}_{\rm total}$',
+              'zetas':r'$\log{(R_{\rm SF} = R_{{\rm e}_{*, {\rm SF}}}/R_{{\rm e}_{*, {\rm total}}})}$',
+              'R10_zetas':r'$\log{(R_{\rm SF} = R_{{\rm 10}_{*, {\rm SF}}}/R_{{\rm 10}_{*, {\rm total}}})}$',
+              'R90_zetas':r'$\log{(R_{\rm SF} = R_{{\rm 90}_{*, {\rm SF}}}/R_{{\rm 90}_{*, {\rm total}}})}$'}
     
     if version == 'outside-in' :
         version = 4
@@ -1057,9 +1845,9 @@ def plot_diskRatios_vs_concentrations() :
     y_metric = 'zetas' # 'R10_zetas', 'zetas', 'R90_zetas'
     
     # xmin, xmax, ymin, ymax, logx, logy = None, None, None, None, 0, 1
-    xmin, xmax, ymin, ymax, logx, logy = -0.03, 1.03, -1.2, 1.5, 0, 1 # zeta vs xi
-    # xmin, xmax, ymin, ymax, logx, logy = -0.7, 1.9, -1.2, 1.6, 1, 1 # zeta vs R10
-    # xmin, xmax, ymin, ymax, logx, logy = -1.5, 0.7, -1.2, 1.6, 1, 1 # zeta vs R90
+    xmin, xmax, ymin, ymax, logx, logy = -0.03, 1.03, -1.2, 1.5, 0, 1 # R_SF vs C_SF
+    # xmin, xmax, ymin, ymax, logx, logy = -0.7, 1.9, -1.2, 1.6, 1, 1 # R_SF vs R10
+    # xmin, xmax, ymin, ymax, logx, logy = -1.5, 0.7, -1.2, 1.6, 1, 1 # R_SF vs R90
     
     xbins = np.arange(np.around(xmin, 1), np.around(xmax, 1), 0.1)
     ybins = np.arange(np.around(ymin, 1), np.around(ymax, 1), 0.1)
@@ -1124,8 +1912,8 @@ def save_diagnostic_plots() :
         xis = hf['xi'][:]
         zetas = hf['zeta'][:]
     
-    labels = [r'$\xi = {\rm SFR}_{<1~{\rm kpc}}/{\rm SFR}_{\rm total}$',
-              r'$\zeta = R_{{\rm e}_{*, {\rm SF}}}/R_{{\rm e}_{*, {\rm total}}}$']
+    labels = [r'$C_{\rm SF} = {\rm SFR}_{<1~{\rm kpc}}/{\rm SFR}_{\rm total}$',
+              r'$R_{\rm SF} = R_{{\rm e}_{*, {\rm SF}}}/R_{{\rm e}_{*, {\rm total}}}$']
     
     # loop over every galaxy in the sample
     for subIDfinal, mass, use, tonset, tterm, tsat, xi, zeta in zip(subIDfinals,
@@ -1359,3 +2147,5 @@ def merge_comp_plots_incorrect_onset_times() :
     return
 
 # plot_profiles_with_derivatives()
+
+# determine_morphological_parameters() # to be deleted -> superceded by better function

@@ -1,13 +1,122 @@
 
+from os.path import exists
 import numpy as np
 
-# import astropy.units as u
+import astropy.units as u
 import h5py
 
-from core import (bsPath, determine_mass_bin_indices, find_nearest)
+from core import (add_dataset, bsPath, determine_mass_bin_indices, find_nearest)
+from diagnostics import determine_radial_profiles
 from xi import determine_xi
 from zeta import determine_zeta
 import plotting as plt
+
+def calculate_all_radial_profiles(simName='TNG50-1', snapNum=99,
+                                  delta_t=100*u.Myr) :
+    
+    # define the input and output files
+    infile = 'TNG50-1/TNG50-1_99_sample(t).hdf5'
+    outfile = 'TNG50-1/TNG50-1_99_massive_radial_profiles(t).hdf5'
+    
+    # get relevant information for the general sample
+    with h5py.File(infile, 'r') as hf :
+        snapshots = hf['snapshots'][:]
+        times = hf['times'][:]
+        subIDs = hf['subIDs'][:].astype(int)
+        Re = hf['Re'][:]
+        centers = hf['centers'][:]
+        SFMS = hf['SFMS'][:].astype(bool) # (boolean) SFMS at each snapshot
+        quenched = hf['quenched'][:]
+        ionsets = hf['onset_indices'][:].astype(int)
+        iterms = hf['termination_indices'][:].astype(int)
+    
+    # find the total number of radial profiles that will be calculated
+    # print(np.sum(SFMS) + np.sum((iterms + 1 - ionsets)*quenched)) # 482308
+    
+    # write an empty file which will hold all the computed radial profiles
+    if not exists(outfile) :
+        
+        # define the edges and center points of the radial bins
+        edges = np.linspace(0, 5, 21)
+        mids = []
+        for start, end in zip(edges, edges[1:]) :
+            mids.append(0.5*(start + end))
+        
+        # populate the helper file with empty arrays to be populated later
+        full_vals = np.full((8260, 100, len(mids)), np.nan)
+        with h5py.File(outfile, 'w') as hf :
+            add_dataset(hf, edges, 'edges')
+            add_dataset(hf, np.array(mids), 'mids')
+            add_dataset(hf, full_vals, 'SFR_profiles')
+            add_dataset(hf, full_vals, 'mass_profiles')
+            add_dataset(hf, full_vals, 'area_profiles')
+            add_dataset(hf, full_vals, 'nParticles')
+            add_dataset(hf, full_vals, 'nSFparticles')
+    
+    with h5py.File(outfile, 'r') as hf :
+        edges = hf['edges'][:]
+        length = len(hf['mids'][:])
+        SFR_profiles = hf['SFR_profiles'][:]
+        mass_profiles = hf['mass_profiles'][:]
+        area_profiles = hf['area_profiles'][:]
+        nParticles = hf['nParticles'][:]
+        nSFparticles = hf['nSFparticles'][:]
+    
+    count = 1
+    # loop over the galaxies in the sample, determining the radial profiles
+    # for the SFMS galaxies at all snapshots, and for the quenched galaxies
+    # between the onset and termination of quenching, inclusive
+    for i, (mpb_subIDs, mpb_Res, mpb_centers, mpb_SFMS, use, ionset_val,
+            iterm_val) in enumerate(
+                zip(subIDs, Re, centers, SFMS, quenched, ionsets, iterms)) :
+        
+        for j, (snap, time, subID, radius, center, SFMS_val) in enumerate(
+                zip(snapshots, times, mpb_subIDs, mpb_Res, mpb_centers, mpb_SFMS)) :
+            
+            # don't replace existing values
+            if (np.all(np.isnan(SFR_profiles[i, j, :])) and
+                np.all(np.isnan(mass_profiles[i, j, :])) and
+                np.all(np.isnan(area_profiles[i, j, :])) and
+                np.all(np.isnan(nParticles[i, j, :])) and
+                np.all(np.isnan(nSFparticles[i, j, :]))) :
+                
+                # if the galaxy is on the SFMS at the snapshot then proceed
+                if SFMS_val :
+                    (SFR_profile, mass_profile, area_profile, nParticle_profile,
+                     nSFparticle_profile) = determine_radial_profiles(simName,
+                        snapNum, snap, time, subID, radius, center, edges,
+                        length, delta_t=delta_t)
+                    
+                    with h5py.File(outfile, 'a') as hf :
+                        hf['SFR_profiles'][i, j, :] = SFR_profile
+                        hf['mass_profiles'][i, j, :] = mass_profile
+                        hf['area_profiles'][i, j, :] = area_profile
+                        hf['nParticles'][i, j, :] = nParticle_profile
+                        hf['nSFparticles'][i, j, :] = nSFparticle_profile
+                
+                # if the galaxy is a quenched galaxy and the snapshot is between
+                # the onset and termination of quenching, inclusive
+                if use and (ionset_val <= snap <= iterm_val) :
+                    (SFR_profile, mass_profile, area_profile, nParticle_profile,
+                     nSFparticle_profile) = determine_radial_profiles(simName,
+                        snapNum, snap, time, subID, radius, center, edges,
+                        length, delta_t=delta_t)
+                    
+                    with h5py.File(outfile, 'a') as hf :
+                        hf['SFR_profiles'][i, j, :] = SFR_profile
+                        hf['mass_profiles'][i, j, :] = mass_profile
+                        hf['area_profiles'][i, j, :] = area_profile
+                        hf['nParticles'][i, j, :] = nParticle_profile
+                        hf['nSFparticles'][i, j, :] = nSFparticle_profile
+            
+            # print to console for visual inspection, after 10% of every snapshot
+            if count % 826 == 0.0 :
+                print('{}/826000 done'.format(count))
+            
+            # iterate the counter
+            count += 1
+    
+    return
 
 def check_differences_between_diagnostic_methods() :
     
