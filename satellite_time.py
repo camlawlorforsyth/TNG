@@ -151,9 +151,9 @@ def determine_satellite_time_dynamical(simName='TNG50-1', snapNum=99) :
         #     print(flag[int(tsat_index):])
         #     print()
     
-    # with h5py.File(outfile, 'w') as hf :
-    #     add_dataset(hf, tsat_indices, 'tsat_indices')
-    #     add_dataset(hf, tsats, 'tsats')
+    with h5py.File(outfile, 'w') as hf :
+        add_dataset(hf, tsat_indices, 'tsat_indices')
+        add_dataset(hf, tsats, 'tsats')
     
     return
 
@@ -203,7 +203,7 @@ def get_all_primary_flags(simName='TNG50-1', snapNum=99) :
     
     return
 
-def satellite_onset_time_plot() :
+def save_time_comparison_plot() :
     
     textwidth = 7.10000594991006
     textheight = 9.095321710253218
