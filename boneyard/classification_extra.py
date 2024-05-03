@@ -605,6 +605,105 @@ def tests() :
     
     return
 
+def locations_of_misclassified(balance_populations_manually=True) :
+    
+    CSF_label = r'$C_{\rm SF} = {\rm SFR}_{<1~{\rm kpc}}/{\rm SFR}_{\rm total}$'
+    RSF_label = r'$\log{(R_{\rm SF} = R_{{\rm e}_{*, {\rm SF}}}/R_{{\rm e}_{*, {\rm total}}})}$'
+    # Rinner_label = r'$R_{\rm inner}/R_{\rm e}$'
+    Router_label = r'$R_{\rm outer}/R_{\rm e}$'
+    outDir = 'TNG50-1/figures/misclassified_OI_galaxies_in_metric_space/'
+    
+    y_quenched, y_sf, X_quenched, X_sf, X_io, X_oi, X_amb = get_late_data()
+    
+    # setup the SVC classifier using a linear kernel
+    if balance_populations_manually :
+        classifier = SVC(kernel='linear')
+        # select the same number of SF galaxies as quenching galaxies
+        threshold = len(y_quenched)/len(y_sf)
+    else :
+        classifier = SVC(kernel='linear', class_weight='balanced')
+        # select all the SF galaxies
+        threshold = 1
+    
+    select = (np.random.rand(len(y_sf)) <= threshold)
+    X_sf_it = X_sf[select]
+    y_sf_it = y_sf[select]
+    
+    X_final = np.concatenate([X_quenched, X_sf_it])
+    y_final = np.concatenate([y_quenched, y_sf_it])
+    
+    # classify the data
+    fit = classifier.fit(X_final, y_final)
+    y_predict = fit.predict(X_final)
+    
+    # find the galaxies that are OI but misclassified as SF
+    oi_misclassified_as_sf = (y_final == 3) & (y_predict == 0)
+    locations = np.where(oi_misclassified_as_sf == True)[0]
+    
+    # get the morphological metrics for those galaxies
+    oi_misclassified_as_sf_metrics = X_final[locations]
+    
+    # 1) R_SF vs C_SF
+    outfile = outDir + 'RSF_vs_CSF.png'
+    xs = oi_misclassified_as_sf_metrics[:, 0]
+    ys = oi_misclassified_as_sf_metrics[:, 1]
+    contour_xs = [X_sf[:, 0], X_oi[:, 0]]
+    contour_ys = [X_sf[:, 1], X_oi[:, 1]]
+    plt.plot_scatter_with_contours(xs, ys, contour_xs, contour_ys,
+        ['k', 'r'], xlabel=CSF_label, ylabel=RSF_label, xmin=0, xmax=1,
+        ymin=-1, ymax=1, save=False, outfile=outfile)
+    
+    # 3) Router vs C_SF
+    outfile = outDir + 'Router_vs_CSF.png'
+    xs = oi_misclassified_as_sf_metrics[:, 0]
+    ys = oi_misclassified_as_sf_metrics[:, 3]
+    contour_xs = [X_sf[:, 0], X_oi[:, 0]]
+    contour_ys = [X_sf[:, 3], X_oi[:, 3]]
+    plt.plot_scatter_with_contours(xs, ys, contour_xs, contour_ys,
+        ['k', 'r'], xlabel=CSF_label, ylabel=Router_label, xmin=0, xmax=1,
+        ymin=0, ymax=5, loc=3, save=False, outfile=outfile)
+    
+    # 5) Router vs R_SF
+    outfile = outDir + 'Router_vs_RSF.png'
+    xs = oi_misclassified_as_sf_metrics[:, 1]
+    ys = oi_misclassified_as_sf_metrics[:, 3]
+    contour_xs = [X_sf[:, 1], X_oi[:, 1]]
+    contour_ys = [X_sf[:, 3], X_oi[:, 3]]
+    plt.plot_scatter_with_contours(xs, ys, contour_xs, contour_ys,
+        ['k', 'r'], xlabel=RSF_label, ylabel=Router_label, xmin=-1, xmax=1,
+        ymin=0, ymax=5, loc=4, save=False, outfile=outfile)
+    
+    '''
+    # 2) Rinner vs C_SF
+    xs = oi_misclassified_as_sf_metrics[:, 0]
+    ys = oi_misclassified_as_sf_metrics[:, 2]
+    contour_xs = [X_sf[:, 0], X_oi[:, 0]]
+    contour_ys = [X_sf[:, 2], X_oi[:, 2]]
+    plt.plot_scatter_with_contours(xs, ys, contour_xs, contour_ys,
+        ['k', 'r'], xlabel=CSF_label, ylabel=Rinner_label, xmin=0, xmax=1,
+        ymin=0, ymax=5)
+    
+    # 4) Rinner vs R_SF
+    xs = oi_misclassified_as_sf_metrics[:, 1]
+    ys = oi_misclassified_as_sf_metrics[:, 2]
+    contour_xs = [X_sf[:, 1], X_oi[:, 1]]
+    contour_ys = [X_sf[:, 2], X_oi[:, 2]]
+    plt.plot_scatter_with_contours(xs, ys, contour_xs, contour_ys,
+        ['k', 'r'], xlabel=RSF_label, ylabel=Rinner_label, xmin=-1,
+        xmax=1, ymin=0, ymax=5)
+    
+    # 6) Router vs Rinner
+    xs = oi_misclassified_as_sf_metrics[:, 2]
+    ys = oi_misclassified_as_sf_metrics[:, 3]
+    contour_xs = [X_sf[:, 2], X_oi[:, 2]]
+    contour_ys = [X_sf[:, 3], X_oi[:, 3]]
+    plt.plot_scatter_with_contours(xs, ys, contour_xs, contour_ys,
+        ['k', 'r'], xlabel=Rinner_label, ylabel=Router_label, xmin=0,
+        xmax=5, ymin=0, ymax=5)
+    '''
+    
+    return
+
 # tests()
 # classify(simple=1) # use all data, but with 80/20 train/test split
 # classify(simple=1, mask=1) # only use io and oi classes

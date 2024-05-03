@@ -183,105 +183,6 @@ def calculate_purity_completeness(balance_populations_manually=True, loc=0,
     
     return
 
-def locations_of_misclassified(balance_populations_manually=True) :
-    
-    CSF_label = r'$C_{\rm SF} = {\rm SFR}_{<1~{\rm kpc}}/{\rm SFR}_{\rm total}$'
-    RSF_label = r'$\log{(R_{\rm SF} = R_{{\rm e}_{*, {\rm SF}}}/R_{{\rm e}_{*, {\rm total}}})}$'
-    # Rinner_label = r'$R_{\rm inner}/R_{\rm e}$'
-    Router_label = r'$R_{\rm outer}/R_{\rm e}$'
-    outDir = 'TNG50-1/figures/misclassified_OI_galaxies_in_metric_space/'
-    
-    y_quenched, y_sf, X_quenched, X_sf, X_io, X_oi, X_amb = get_late_data()
-    
-    # setup the SVC classifier using a linear kernel
-    if balance_populations_manually :
-        classifier = SVC(kernel='linear')
-        # select the same number of SF galaxies as quenching galaxies
-        threshold = len(y_quenched)/len(y_sf)
-    else :
-        classifier = SVC(kernel='linear', class_weight='balanced')
-        # select all the SF galaxies
-        threshold = 1
-    
-    select = (np.random.rand(len(y_sf)) <= threshold)
-    X_sf_it = X_sf[select]
-    y_sf_it = y_sf[select]
-    
-    X_final = np.concatenate([X_quenched, X_sf_it])
-    y_final = np.concatenate([y_quenched, y_sf_it])
-    
-    # classify the data
-    fit = classifier.fit(X_final, y_final)
-    y_predict = fit.predict(X_final)
-    
-    # find the galaxies that are OI but misclassified as SF
-    oi_misclassified_as_sf = (y_final == 3) & (y_predict == 0)
-    locations = np.where(oi_misclassified_as_sf == True)[0]
-    
-    # get the morphological metrics for those galaxies
-    oi_misclassified_as_sf_metrics = X_final[locations]
-    
-    # 1) R_SF vs C_SF
-    outfile = outDir + 'RSF_vs_CSF.png'
-    xs = oi_misclassified_as_sf_metrics[:, 0]
-    ys = oi_misclassified_as_sf_metrics[:, 1]
-    contour_xs = [X_sf[:, 0], X_oi[:, 0]]
-    contour_ys = [X_sf[:, 1], X_oi[:, 1]]
-    plt.plot_scatter_with_contours(xs, ys, contour_xs, contour_ys,
-        ['k', 'r'], xlabel=CSF_label, ylabel=RSF_label, xmin=0, xmax=1,
-        ymin=-1, ymax=1, save=False, outfile=outfile)
-    
-    # 3) Router vs C_SF
-    outfile = outDir + 'Router_vs_CSF.png'
-    xs = oi_misclassified_as_sf_metrics[:, 0]
-    ys = oi_misclassified_as_sf_metrics[:, 3]
-    contour_xs = [X_sf[:, 0], X_oi[:, 0]]
-    contour_ys = [X_sf[:, 3], X_oi[:, 3]]
-    plt.plot_scatter_with_contours(xs, ys, contour_xs, contour_ys,
-        ['k', 'r'], xlabel=CSF_label, ylabel=Router_label, xmin=0, xmax=1,
-        ymin=0, ymax=5, loc=3, save=False, outfile=outfile)
-    
-    # 5) Router vs R_SF
-    outfile = outDir + 'Router_vs_RSF.png'
-    xs = oi_misclassified_as_sf_metrics[:, 1]
-    ys = oi_misclassified_as_sf_metrics[:, 3]
-    contour_xs = [X_sf[:, 1], X_oi[:, 1]]
-    contour_ys = [X_sf[:, 3], X_oi[:, 3]]
-    plt.plot_scatter_with_contours(xs, ys, contour_xs, contour_ys,
-        ['k', 'r'], xlabel=RSF_label, ylabel=Router_label, xmin=-1, xmax=1,
-        ymin=0, ymax=5, loc=4, save=False, outfile=outfile)
-    
-    '''
-    # 2) Rinner vs C_SF
-    xs = oi_misclassified_as_sf_metrics[:, 0]
-    ys = oi_misclassified_as_sf_metrics[:, 2]
-    contour_xs = [X_sf[:, 0], X_oi[:, 0]]
-    contour_ys = [X_sf[:, 2], X_oi[:, 2]]
-    plt.plot_scatter_with_contours(xs, ys, contour_xs, contour_ys,
-        ['k', 'r'], xlabel=CSF_label, ylabel=Rinner_label, xmin=0, xmax=1,
-        ymin=0, ymax=5)
-    
-    # 4) Rinner vs R_SF
-    xs = oi_misclassified_as_sf_metrics[:, 1]
-    ys = oi_misclassified_as_sf_metrics[:, 2]
-    contour_xs = [X_sf[:, 1], X_oi[:, 1]]
-    contour_ys = [X_sf[:, 2], X_oi[:, 2]]
-    plt.plot_scatter_with_contours(xs, ys, contour_xs, contour_ys,
-        ['k', 'r'], xlabel=RSF_label, ylabel=Rinner_label, xmin=-1,
-        xmax=1, ymin=0, ymax=5)
-    
-    # 6) Router vs Rinner
-    xs = oi_misclassified_as_sf_metrics[:, 2]
-    ys = oi_misclassified_as_sf_metrics[:, 3]
-    contour_xs = [X_sf[:, 2], X_oi[:, 2]]
-    contour_ys = [X_sf[:, 3], X_oi[:, 3]]
-    plt.plot_scatter_with_contours(xs, ys, contour_xs, contour_ys,
-        ['k', 'r'], xlabel=Rinner_label, ylabel=Router_label, xmin=0,
-        xmax=5, ymin=0, ymax=5)
-    '''
-    
-    return
-
 def find_boundaries(balance_populations_manually=True, save=False) :
     
     y_quenched, y_sf, X_quenched, X_sf, X_io, X_oi, X_amb = get_late_data()
@@ -313,7 +214,7 @@ def find_boundaries(balance_populations_manually=True, save=False) :
         X_sf_it, X_io, X_oi, X_amb, 'Router', save=save)
     
     # create a single figure with two panels
-    create_side_by_side_plot(-2.90513387, -2.45755192, -1.26427034, 2.26105976,
+    save_side_by_side_plot(-2.90513387, -2.45755192, -1.26427034, 2.26105976,
         -0.52796386, 2.07145622, 0.39705317, -0.11663121,
         X_sf_it, X_io, X_oi, X_amb)
     
@@ -322,47 +223,6 @@ def find_boundaries(balance_populations_manually=True, save=False) :
     # X_final = np.concatenate([X_quenched, X_sf_it])
     # y_final = np.concatenate([y_quenched, y_sf[select]])
     # fit = classifier.fit(X_final, y_final)
-    
-    return
-
-def create_side_by_side_plot(a1, b1, c1, d1, a2, b2, c2, d2, X_sf, X_io, X_oi, X_am) :
-    
-    textwidth = 7.10000594991006
-    textheight = 9.095321710253218
-    
-    xprimes1 = [-(a1*X_sf[:, 0] + b1*X_sf[:, 1] + d1)/c1,
-                -(a1*X_io[:, 0] + b1*X_io[:, 1] + d1)/c1,
-                -(a1*X_oi[:, 0] + b1*X_oi[:, 1] + d1)/c1,
-                -(a1*X_am[:, 0] + b1*X_am[:, 1] + d1)/c1]
-    # ys1 = [X_sf[:, 2], X_io[:, 2], X_oi[:, 2], X_am[:, 2]]
-    ys1 = [np.random.normal(X_sf[:, 2], 0.03), np.random.normal(X_io[:, 2], 0.03),
-           np.random.normal(X_oi[:, 2], 0.03), np.random.normal(X_am[:, 2], 0.03)]
-    xlabel1 = r'$-2.298 C_{\rm SF} - 1.944 R_{\rm SF} + 1.788$'
-    ylabel1 = r'$R_{\rm inner}/R_{\rm e}$'
-    
-    xprimes2 = [-(a2*X_sf[:, 0] + b2*X_sf[:, 1] + d2)/c2,
-                -(a2*X_io[:, 0] + b2*X_io[:, 1] + d2)/c2,
-                -(a2*X_oi[:, 0] + b2*X_oi[:, 1] + d2)/c2,
-                -(a2*X_am[:, 0] + b2*X_am[:, 1] + d2)/c2]
-    # ys2 = [X_sf[:, 3], X_io[:, 3], X_oi[:, 3], X_am[:, 3]]
-    ys2 = [np.random.normal(X_sf[:, 3], 0.03), np.random.normal(X_io[:, 3], 0.03),
-           np.random.normal(X_oi[:, 3], 0.03), np.random.normal(X_am[:, 3], 0.03)]
-    xlabel2 = r'$1.330 C_{\rm SF} - 5.217 R_{\rm SF} + 0.294$'
-    ylabel2 = r'$R_{\rm outer}/R_{\rm e}$'
-    
-    xx = np.linspace(-0.1, 5.1, 1001)
-    
-    colors = ['k', 'm', 'r', 'orange']
-    alphas = [0.2, 0.2, 0.2, 0.2]
-    labels = ['SF', 'inside-out', 'outside-in', 'ambiguous']
-    markers = ['o', 's', 's', 's']
-    
-    plt.double_scatter_with_line(xprimes1, ys1, colors, markers, alphas, xx, xx,
-        xprimes2, ys2, colors, markers, alphas, xx, xx, labels,
-        xlabel1=xlabel1, ylabel1=ylabel1, xlabel2=xlabel2, ylabel2=ylabel2,
-        xmin1=-1.3, xmax1=2.3, xmin2=-8, xmax2=9, ymin=-0.1, ymax=5.1,
-        figsizewidth=textwidth, figsizeheight=textheight/3, loc=2,
-        save=False, outfile='classification_boundaries.pdf')
     
     return
 
@@ -420,61 +280,48 @@ def create_boundary_plot(aa, bb, cc, dd, X_sf, X_io, X_oi, X_am, variety, save=F
     
     return
 
+def save_side_by_side_plot(a1, b1, c1, d1, a2, b2, c2, d2, X_sf, X_io, X_oi, X_am) :
+    
+    textwidth = 7.10000594991006
+    textheight = 9.095321710253218
+    
+    xprimes1 = [-(a1*X_sf[:, 0] + b1*X_sf[:, 1] + d1)/c1,
+                -(a1*X_io[:, 0] + b1*X_io[:, 1] + d1)/c1,
+                -(a1*X_oi[:, 0] + b1*X_oi[:, 1] + d1)/c1,
+                -(a1*X_am[:, 0] + b1*X_am[:, 1] + d1)/c1]
+    # ys1 = [X_sf[:, 2], X_io[:, 2], X_oi[:, 2], X_am[:, 2]]
+    ys1 = [np.random.normal(X_sf[:, 2], 0.03), np.random.normal(X_io[:, 2], 0.03),
+           np.random.normal(X_oi[:, 2], 0.03), np.random.normal(X_am[:, 2], 0.03)]
+    xlabel1 = r'$-2.298 C_{\rm SF} - 1.944 R_{\rm SF} + 1.788$'
+    ylabel1 = r'$R_{\rm inner}/R_{\rm e}$'
+    
+    xprimes2 = [-(a2*X_sf[:, 0] + b2*X_sf[:, 1] + d2)/c2,
+                -(a2*X_io[:, 0] + b2*X_io[:, 1] + d2)/c2,
+                -(a2*X_oi[:, 0] + b2*X_oi[:, 1] + d2)/c2,
+                -(a2*X_am[:, 0] + b2*X_am[:, 1] + d2)/c2]
+    # ys2 = [X_sf[:, 3], X_io[:, 3], X_oi[:, 3], X_am[:, 3]]
+    ys2 = [np.random.normal(X_sf[:, 3], 0.03), np.random.normal(X_io[:, 3], 0.03),
+           np.random.normal(X_oi[:, 3], 0.03), np.random.normal(X_am[:, 3], 0.03)]
+    xlabel2 = r'$1.330 C_{\rm SF} - 5.217 R_{\rm SF} + 0.294$'
+    ylabel2 = r'$R_{\rm outer}/R_{\rm e}$'
+    
+    xx = np.linspace(-0.1, 5.1, 1001)
+    
+    colors = ['k', 'm', 'r', 'orange']
+    alphas = [0.2, 0.2, 0.2, 0.2]
+    labels = ['SF', 'inside-out', 'outside-in', 'ambiguous']
+    markers = ['o', 's', 's', 's']
+    
+    plt.double_scatter_with_line(xprimes1, ys1, colors, markers, alphas, xx, xx,
+        xprimes2, ys2, colors, markers, alphas, xx, xx, labels,
+        xlabel1=xlabel1, ylabel1=ylabel1, xlabel2=xlabel2, ylabel2=ylabel2,
+        xmin1=-1.3, xmax1=2.3, xmin2=-8, xmax2=9, ymin=-0.1, ymax=5.1,
+        figsizewidth=textwidth, figsizeheight=textheight/3, loc=2,
+        save=False, outfile='classification_boundaries.pdf')
+    
+    return
+
 def surface(aa, bb, cc, dd, xs, ys) :
     # given a plane of the form aa*xx + bb*yy + cc*zz + dd = 0, solve for zz
     surf = lambda xx, yy : (-dd - aa*xx - bb*yy)/cc
     return surf(xs, ys)
-
-'''
-y_quenched, y_sf, X_quenched, X_sf, X_io, X_oi, X_amb = get_late_data()
-
-# setup the SVC classifier using a linear kernel
-if True :
-    classifier = SVC(kernel='linear')
-    # select the same number of SF galaxies as quenching galaxies
-    threshold = len(y_quenched)/len(y_sf)
-else :
-    classifier = SVC(kernel='linear', class_weight='balanced')
-    # select all the SF galaxies
-    threshold = 1
-
-from sklearn.decomposition import PCA
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-
-np.random.seed(0)
-select = (np.random.rand(len(y_sf)) <= threshold)
-X_sf_it = X_sf[select]
-y_sf_it = y_sf[select]
-
-X_final = np.concatenate([X_quenched, X_sf_it])
-y_final = np.concatenate([y_quenched, y_sf_it])
-
-# determine the principal components using PCA
-# pca = PCA(n_components=3, svd_solver='full')
-# fit = pca.fit(X_final)
-
-# print(fit.components_)
-# print(fit.explained_variance_ratio_)
-# print(np.cumsum(fit.explained_variance_ratio_))
-
-# X_r = fit.transform(X_final)
-
-# plt.plot_scatter_3d([X_r[:, 0]], [X_r[:, 1]], [X_r[:, 2]], ['k'], ['o'], ['pca'],
-#                     [20], None, None, None)
-
-
-# lda = LinearDiscriminantAnalysis(n_components=3)
-# fit = lda.fit(X_final, y_final)
-# print(fit.intercept_)
-# print(fit.coef_)
-# print(fit.explained_variance_ratio_)
-# print(np.cumsum(fit.explained_variance_ratio_))
-
-# X_r = fit.transform(X_final)
-
-# xs = X_r[:, 0]
-
-# plt.plot_scatter_3d([X_r[:, 0]], [X_r[:, 1]], [X_r[:, 2]], ['k'], ['o'], ['lda'],
-#                     [20], None, None, None)
-
-'''
