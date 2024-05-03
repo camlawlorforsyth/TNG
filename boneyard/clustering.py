@@ -203,5 +203,3 @@ def perform_kmeans(data) :
     
     return (clus1_x, clus1_y, clus1_z, clus2_x, clus2_y, clus2_z,
             clus3_x, clus3_y, clus3_z)
-
-# main()
