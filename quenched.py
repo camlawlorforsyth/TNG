@@ -1,12 +1,11 @@
 
-from os.path import exists
 import numpy as np
 
 import h5py
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 
-from core import add_dataset, bsPath, determine_mass_bin_indices
+from core import bsPath, determine_mass_bin_indices
 import plotting as plt
 
 def determine_comparison_systems_relative(simName='TNG50-1', snapNum=99,
@@ -147,72 +146,7 @@ def determine_quenched_systems_relative(simName='TNG50-1', snapNum=99, kernel=2)
     
     return
 
-def quenched_example() :
-    
-    colwidth = 3.35224200913242
-    # textwidth = 7.10000594991006
-    textheight = 9.095321710253218
-    
-    with h5py.File('TNG50-1/TNG50-1_99_sample(t).hdf5', 'r') as hf :
-        # subIDs = hf['subIDs'][:].astype(int)
-        times = hf['times'][:]
-        subIDfinals = hf['SubhaloID'][:].astype(int)
-        logM = hf['logM'][:]
-        SFHs = hf['SFH'][:]
-        SFMS = hf['SFMS'][:].astype(bool)
-        lo_SFHs = hf['lo_SFH'][:]
-        hi_SFHs = hf['hi_SFH'][:]
-        tonsets = hf['onset_times'][:]
-        tterms = hf['termination_times'][:]
-    
-    loc = 1115   # subID 198186 at z = 0
-    sfloc = 3109 # subID 537941 at z = 0
-    
-    xs = [times, times, times]
-    ys = [gaussian_filter1d(SFHs[loc], 2),
-          gaussian_filter1d(lo_SFHs[loc], 2),
-          gaussian_filter1d(hi_SFHs[loc], 2)]
-    sf_ys = [gaussian_filter1d(SFHs[sfloc], 2),
-             gaussian_filter1d(lo_SFHs[sfloc], 2),
-             gaussian_filter1d(hi_SFHs[sfloc], 2)]
-    labels = ['quenched', r'$\pm 2 \sigma$', '']
-    sf_labels = ['SF', r'$\pm 2 \sigma$', '']
-    colors = ['k', 'grey', 'grey']
-    styles = ['-', '-.', '-.']
-    sf_styles = ['--', '-.', '-.']
-    alphas = [1, 1, 1]
-    
-    # plt.plot_simple_multi_with_times(xs, ys, labels, colors, markers, styles,
-    #     alphas, np.nan, tonsets[loc], tterms[loc], [np.nan], [''], scale='linear',
-    #     xlabel=r'$t$ (Gyr)', ylabel=r'SFR (${\rm M}_{\odot}$ yr$^{-1}$)',
-    #     xmin=0, xmax=13.8, ymin=0)
-    
-    plt.double_simple_with_times(xs, sf_ys, colors, sf_styles, alphas, sf_labels,
-        xs, ys, colors, styles, alphas, labels, tonsets[loc], tterms[loc],
-        xlabel=r'$t$ (Gyr)', ylabel=r'SFR (${\rm M}_{\odot}$ yr$^{-1}$)',
-        xmin=0, xmax=13.8, ymin=0, ymax=10, figsizeheight=textheight/2,
-        figsizewidth=colwidth, save=False, outfile='SFHs.pdf')
-    
-    '''
-    # find SFMS galaxies with a similar stellar mass at onset
-    mass = logM[1115, 43] # ionset = 43 for subID 198186
-    comparisons = (np.abs(logM[:, 43] - mass) <= 0.1) & (SFMS[:, 43]) & (SFMS[:, 99])
-    for subIDfinal, SFH, lo, hi in zip(subIDfinals[comparisons],
-        SFHs[comparisons], lo_SFHs[comparisons], hi_SFHs[comparisons]) :
-        ys = [gaussian_filter1d(SFH, 2), gaussian_filter1d(lo, 2),
-              gaussian_filter1d(hi, 2)]
-        ymax = np.nanmax([ys[0], ys[1], ys[2]])
-        plt.plot_simple_multi_with_times(xs, ys, labels, colors, markers, styles,
-            alphas, np.nan, -5, -4, [np.nan], [''], scale='linear',
-            xlabel=r'$t$ (Gyr)', ylabel=r'SFR (${\rm M}_{\odot}$ yr$^{-1}$)',
-            xmin=0, xmax=13.8, ymin=0, ymax=ymax, save=True,
-            outfile='find_subID_198186_comparison/comparison_{}.png'.format(
-                subIDfinal))
-    '''
-    
-    return
-
-def quenched_galaxies_on_SFMS() :
+def save_SFMS_with_quenched_galaxies_plot() :
     
     colwidth = 3.35224200913242
     # textwidth = 7.10000594991006
@@ -266,16 +200,69 @@ def quenched_galaxies_on_SFMS() :
     
     return
 
-def schechter_log(logM, Mstar, alpha, phi) :
-    return np.log(10)*np.exp(-np.power(10, logM - Mstar))*np.power(
-        10, (logM - Mstar)*(alpha + 1))*phi
+def save_SFH_with_quenched_galaxy_plot() :
+    
+    colwidth = 3.35224200913242
+    # textwidth = 7.10000594991006
+    textheight = 9.095321710253218
+    
+    with h5py.File('TNG50-1/TNG50-1_99_sample(t).hdf5', 'r') as hf :
+        # subIDs = hf['subIDs'][:].astype(int)
+        times = hf['times'][:]
+        # subIDfinals = hf['SubhaloID'][:].astype(int)
+        # logM = hf['logM'][:]
+        SFHs = hf['SFH'][:]
+        # SFMS = hf['SFMS'][:].astype(bool)
+        lo_SFHs = hf['lo_SFH'][:]
+        hi_SFHs = hf['hi_SFH'][:]
+        tonsets = hf['onset_times'][:]
+        tterms = hf['termination_times'][:]
+    
+    '''
+    # find SFMS galaxies with a similar stellar mass at onset
+    mass = logM[1115, 43] # ionset = 43 for subID 198186
+    comparisons = (np.abs(logM[:, 43] - mass) <= 0.1) & (SFMS[:, 43]) & (SFMS[:, 99])
+    for subIDfinal, SFH, lo, hi in zip(subIDfinals[comparisons],
+        SFHs[comparisons], lo_SFHs[comparisons], hi_SFHs[comparisons]) :
+        ys = [gaussian_filter1d(SFH, 2), gaussian_filter1d(lo, 2),
+              gaussian_filter1d(hi, 2)]
+        ymax = np.nanmax([ys[0], ys[1], ys[2]])
+        plt.plot_simple_multi_with_times([times, times, times], ys,
+            ['quenched', r'$\pm 2 \sigma$', ''], ['k', 'grey', 'grey'],
+            ['', '', ''], ['-', '-.', '-.'], [1, 1, 1], np.nan, -5, -4,
+            [np.nan], [''], scale='linear',
+            xlabel=r'$t$ (Gyr)', ylabel=r'SFR (${\rm M}_{\odot}$ yr$^{-1}$)',
+            xmin=0, xmax=13.8, ymin=0, ymax=ymax, save=False,
+            outfile='find_subID_198186_comparison/comparison_{}.png'.format(
+                subIDfinal))
+    '''
+    
+    loc = 1115   # subID 198186 at z = 0
+    sfloc = 3109 # subID 537941 at z = 0, a good choice to compare to
+    
+    xs = [times, times, times]
+    ys = [gaussian_filter1d(SFHs[loc], 2),
+          gaussian_filter1d(lo_SFHs[loc], 2),
+          gaussian_filter1d(hi_SFHs[loc], 2)]
+    sf_ys = [gaussian_filter1d(SFHs[sfloc], 2),
+             gaussian_filter1d(lo_SFHs[sfloc], 2),
+             gaussian_filter1d(hi_SFHs[sfloc], 2)]
+    labels = ['quenched', r'$\pm 2 \sigma$', '']
+    sf_labels = ['SF', r'$\pm 2 \sigma$', '']
+    colors = ['k', 'grey', 'grey']
+    styles = ['-', '-.', '-.']
+    sf_styles = ['--', '-.', '-.']
+    alphas = [1, 1, 1]
+    
+    plt.double_simple_with_times(xs, sf_ys, colors, sf_styles, alphas, sf_labels,
+        xs, ys, colors, styles, alphas, labels, tonsets[loc], tterms[loc],
+        xlabel=r'$t$ (Gyr)', ylabel=r'SFR (${\rm M}_{\odot}$ yr$^{-1}$)',
+        xmin=0, xmax=13.8, ymin=0, ymax=10, figsizeheight=textheight/2,
+        figsizewidth=colwidth, save=False, outfile='SFHs.pdf')
+    
+    return
 
-def schechter_double_log(logM, Mstar, alpha1, alpha2, phi1, phi2) :
-    return np.log(10)*np.exp(-np.power(10, logM - Mstar))*(
-        phi1*np.power(10, (logM - Mstar)*(alpha1 + 1)) +
-        phi2*np.power(10, (logM - Mstar)*(alpha2 + 1)))
-
-def quenched_mass_distribution_z0() :
+def save_SMF_with_quenched_galaxies_plot() :
     
     colwidth = 3.35224200913242
     # textwidth = 7.10000594991006
@@ -321,3 +308,12 @@ def quenched_mass_distribution_z0() :
         outfile='SMF.pdf')
     
     return
+
+def schechter_log(logM, Mstar, alpha, phi) :
+    return np.log(10)*np.exp(-np.power(10, logM - Mstar))*np.power(
+        10, (logM - Mstar)*(alpha + 1))*phi
+
+def schechter_double_log(logM, Mstar, alpha1, alpha2, phi1, phi2) :
+    return np.log(10)*np.exp(-np.power(10, logM - Mstar))*(
+        phi1*np.power(10, (logM - Mstar)*(alpha1 + 1)) +
+        phi2*np.power(10, (logM - Mstar)*(alpha2 + 1)))

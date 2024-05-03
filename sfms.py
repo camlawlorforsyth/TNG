@@ -8,57 +8,6 @@ import imageio.v3 as iio
 from core import add_dataset, bsPath
 import plotting as plt
 
-def check_SFMS(simName='TNG50-1', snapNum=99) :
-    
-    # define the input directory, input file, and the output helper file
-    inDir = bsPath(simName)
-    sample_file = inDir + '/{}_{}_sample(t).hdf5'.format(simName, snapNum)
-    helper_file = inDir + '/{}_{}_SFMS_helper.hdf5'.format(simName, snapNum)
-    
-    # get the stellar masses and SFHs for the entire sample
-    with h5py.File(sample_file, 'r') as hf :
-        snaps = hf['snapshots'][:]
-        logM = hf['logM'][:]
-        SFHs = hf['SFH'][:]
-        SFMS = hf['SFMS'][:]
-        exclude = hf['exclude'][:] # 103 galaxies should be excluded, see sfhs.py
-    
-    # the edges, 16th, and 84th percentiles will be loaded from the helper file
-    helper = h5py.File(helper_file, 'r')
-    
-    # loop over every snapshot
-    for snap in snaps :
-        
-        # get the stellar masses, SFRs in correct units, and the quiescent mask
-        masses, SFRs, q_mask = get_logM_and_SFRs_at_snap(logM, SFHs, snap, exclude)
-        
-        # get the centers, 16th and 84th percentiles
-        centers = helper['Snapshot_{}/edges'.format(snap)][:-1] + 0.1
-        los = helper['Snapshot_{}/los'.format(snap)][:]
-        his = helper['Snapshot_{}/his'.format(snap)][:]
-        
-        # define a mask for the SFMS, and create three populations
-        SFMS_mask = SFMS[:, snap].astype(bool)
-        SFMS_masses, SFMS_SFRs = masses[SFMS_mask], SFRs[SFMS_mask]
-        
-        q_masses, q_SFRs = masses[q_mask], SFRs[q_mask]
-        
-        other_mask = (~SFMS_mask) & (~q_mask)
-        other_masses, other_SFRs = masses[other_mask], SFRs[other_mask]
-        
-        # plot the SFMS with those percentiles
-        outfile = 'TNG50-1/figures/SFMS(t)/SFMS_{}.png'.format(snap)
-        plt.plot_scatter_multi_with_bands(SFMS_masses, SFMS_SFRs,
-            q_masses, q_SFRs, other_masses, other_SFRs, centers, los, his,
-            xlabel=r'$\log(M_{*}/{\rm M}_{\odot})$',
-            ylabel=r'$\log({\rm SFR}/{\rm M}_{\odot}~{\rm yr}^{-1}$)',
-            xmin=6.4, xmax=12.8, ymin=-6.4, ymax=3,
-            outfile=outfile, save=False)
-    
-    helper.close()
-    
-    return
-
 def compute_SFMS_percentile_limits(simName='TNG50-1', snapNum=99) :
     
     # define the input directory, input file, and the output helper file
@@ -208,7 +157,54 @@ def determine_SFMS(simName='TNG50-1', snapNum=99) :
     
     return
 
-def save_SFMS_gif() :
+def save_SFMS_evolution_gif(simName='TNG50-1', snapNum=99) :
+    
+    # define the input directory, input file, and the output helper file
+    inDir = bsPath(simName)
+    sample_file = inDir + '/{}_{}_sample(t).hdf5'.format(simName, snapNum)
+    helper_file = inDir + '/{}_{}_SFMS_helper.hdf5'.format(simName, snapNum)
+    
+    # get the stellar masses and SFHs for the entire sample
+    with h5py.File(sample_file, 'r') as hf :
+        snaps = hf['snapshots'][:]
+        logM = hf['logM'][:]
+        SFHs = hf['SFH'][:]
+        SFMS = hf['SFMS'][:]
+        exclude = hf['exclude'][:] # 103 galaxies should be excluded, see sfhs.py
+    
+    # the edges, 16th, and 84th percentiles will be loaded from the helper file
+    helper = h5py.File(helper_file, 'r')
+    
+    # loop over every snapshot
+    for snap in snaps :
+        
+        # get the stellar masses, SFRs in correct units, and the quiescent mask
+        masses, SFRs, q_mask = get_logM_and_SFRs_at_snap(logM, SFHs, snap, exclude)
+        
+        # get the centers, 16th and 84th percentiles
+        centers = helper['Snapshot_{}/edges'.format(snap)][:-1] + 0.1
+        los = helper['Snapshot_{}/los'.format(snap)][:]
+        his = helper['Snapshot_{}/his'.format(snap)][:]
+        
+        # define a mask for the SFMS, and create three populations
+        SFMS_mask = SFMS[:, snap].astype(bool)
+        SFMS_masses, SFMS_SFRs = masses[SFMS_mask], SFRs[SFMS_mask]
+        
+        q_masses, q_SFRs = masses[q_mask], SFRs[q_mask]
+        
+        other_mask = (~SFMS_mask) & (~q_mask)
+        other_masses, other_SFRs = masses[other_mask], SFRs[other_mask]
+        
+        # plot the SFMS with those percentiles
+        outfile = 'TNG50-1/figures/SFMS(t)/SFMS_{}.png'.format(snap)
+        plt.plot_scatter_multi_with_bands(SFMS_masses, SFMS_SFRs,
+            q_masses, q_SFRs, other_masses, other_SFRs, centers, los, his,
+            xlabel=r'$\log(M_{*}/{\rm M}_{\odot})$',
+            ylabel=r'$\log({\rm SFR}/{\rm M}_{\odot}~{\rm yr}^{-1}$)',
+            xmin=6.4, xmax=12.8, ymin=-6.4, ymax=3,
+            outfile=outfile, save=False)
+    
+    helper.close()
     
     frames = [iio.imread(f'TNG50-1/figures/SFMS(t)/SFMS_{i}.png') for i in range(100)]
     iio.imwrite('TNG50-1/figures/SFMS(t).gif', np.stack(frames, axis=0))
