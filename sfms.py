@@ -52,7 +52,8 @@ def check_SFMS(simName='TNG50-1', snapNum=99) :
             q_masses, q_SFRs, other_masses, other_SFRs, centers, los, his,
             xlabel=r'$\log(M_{*}/{\rm M}_{\odot})$',
             ylabel=r'$\log({\rm SFR}/{\rm M}_{\odot}~{\rm yr}^{-1}$)',
-            xmin=6.8, xmax=12.8, ymin=-6.4, ymax=3, outfile=outfile, save=True)
+            xmin=6.4, xmax=12.8, ymin=-6.4, ymax=3,
+            outfile=outfile, save=False)
     
     helper.close()
     

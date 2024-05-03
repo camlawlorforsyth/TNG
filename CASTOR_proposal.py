@@ -21,8 +21,9 @@ cosmo = FlatLambdaCDM(H0=67.74, Om0=0.3089, Ob0=0.0486) # the TNG cosmology
 import warnings
 warnings.filterwarnings('ignore', category=RuntimeWarning)
 
+
 def comp_prop_plots_for_sample(simName='TNG50-1', snapNum=99, hw=0.1,
-                               minNum=50, nelson2021version=True, save=True) :
+                               minNum=50, nelson2021version=True, save=False) :
     
     # define the input and output directories, and the helper file
     inDir = bsPath(simName)
@@ -226,6 +227,18 @@ def comprehensive_plot(q_subfin, q_subID, q_logM, q_SFH, q_rad, q_cent,
               r', $\log{(M/{\rm M}_{\odot})}_{z = 0} = $' 
               + '{:.2f}'.format(q_logM[-1]))
     
+    plt.plot_comprehensive_mini(
+        np.log10(hists[0]), np.log10(hists[1]), np.log10(hists[2]),
+        contours[0], contours[1], contours[2], levels[0], levels[1], levels[2],
+        mids, np.log10(mains[0]), np.log10(mains[1]), np.log10(mains[2]),
+        np.log10(los[0]), np.log10(los[1]), np.log10(los[2]),
+        np.log10(meds[0]), np.log10(meds[1]), np.log10(meds[2]),
+        np.log10(his[0]), np.log10(his[1]), np.log10(his[2]),
+        XX, YY, X_cent, Y_cent, vmin=np.log10(vmin), vmax=np.log10(vmax),
+        ymin=np.log10(ymin_b), ymax=np.log10(ymax_b), save=False,
+        outfile='postage_stamps_and_sSFR_profiles.pdf')
+    
+    '''
     plt.plot_comprehensive_plot(
         subtitles[0], subtitles[1], subtitles[2],
         hists[0], hists[1], hists[2],
@@ -261,6 +274,7 @@ def comprehensive_plot(q_subfin, q_subID, q_logM, q_SFH, q_rad, q_cent,
         xmin_SFH=-0.1, xmax_SFH=13.8, xmin_SMH=-0.1, xmax_SMH=13.8,
         xmin_UVK=0.5, xmax_UVK=3.4, ymin_UVK=-0.5, ymax_UVK=1.75,
         outfile=outfile, save=save)
+    '''
     
     return
 
@@ -433,15 +447,15 @@ def spatial_plot_info(time, snap, mpbsubID, center, Re, edges, delta_t,
      star_coords) = get_rotation_input('TNG50-1', 99, snap, mpbsubID)
     
     # determine the rotation matrix
-    # rot = rotation_matrix_from_MoI_tensor(calculate_MoI_tensor(
-    #     gas_masses, gas_sfrs, gas_coords, star_ages, star_masses, star_coords,
-    #     Re, center))
+    rot = rotation_matrix_from_MoI_tensor(calculate_MoI_tensor(
+        gas_masses, gas_sfrs, gas_coords, star_ages, star_masses, star_coords,
+        Re, center))
     
     # reproject the coordinates using the face-on projection
-    # dx, dy, dz = np.matmul(np.asarray(rot['face-on']), (star_coords-center).T)
+    dx, dy, dz = np.matmul(np.asarray(rot['face-on']), (star_coords-center).T)
     
     # don't project using face-on version
-    dx, dy, dz = (star_coords - center).T
+    # dx, dy, dz = (star_coords - center).T
     
     # get the SF particles
     _, sf_masses, sf_dx, sf_dy, sf_dz = get_sf_particle_positions(
