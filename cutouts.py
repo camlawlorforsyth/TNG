@@ -1,5 +1,4 @@
 
-from os.path import exists
 import numpy as np
 
 import h5py
@@ -61,33 +60,5 @@ def download_mpb_cutouts(simName='TNG50-1', snapNum=99) :
                 filename=filename)
         
         print('{} done'.format(filename))
-    
-    return
-
-def estimate_remaining_time(simName='TNG50-1', snapNum=99) :
-    
-    # define the input directory and file, and output directory for the mpb cutouts
-    inDir = bsPath(simName)
-    infile = inDir + '/{}_{}_mpb_cutouts_to_download.hdf5'.format(simName, snapNum)
-    outDir = mpbCutoutPath(simName, snapNum)
-    
-    # get the mpb cutouts to download
-    with h5py.File(infile, 'r') as hf :
-        list_of_snaps = hf['list_of_snaps'][:]
-        list_of_IDs = hf['list_of_subIDs'][:]
-    
-    # check if the files exist
-    to_download, downloaded = len(list_of_snaps), 0
-    for snap, subID in zip(list_of_snaps, list_of_IDs) :
-        if exists(outDir + 'cutout_{}_{}.hdf5'.format(snap, subID)) :
-            downloaded +=1
-    
-    # determine the remaining number of files to download, and use an estimate
-    # for the download rate
-    remaining = to_download - downloaded
-    rate = 2000 # ~2000 files per hour
-    
-    print('{} files remaining, at ~2000 files/hr -> {:.2f} hr remaining'.format(
-        remaining, remaining/rate))
     
     return
