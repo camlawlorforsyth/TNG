@@ -8,21 +8,12 @@ import h5py
 import pandas as pd
 import plotly.express as px
 import plotly.io as pio
-from pypdf import PdfWriter
 from scipy.ndimage import gaussian_filter1d, gaussian_filter
 from scipy.optimize import curve_fit
-# from scipy.stats import anderson_ksamp, ks_2samp
-# from scipy.interpolate import CubicSpline
 
-# from concatenate import concat_horiz
-from core import (add_dataset, find_nearest, get_late_data,
-                  get_particle_positions, get_particles, get_sf_particles,
-                  vertex)
+from core import (add_dataset, get_late_data, get_particle_positions,
+                  get_particles, get_sf_particles, vertex)
 import plotting as plt
-
-import warnings
-warnings.filterwarnings('ignore', category=UserWarning)
-warnings.filterwarnings('ignore', category=RuntimeWarning)
 
 def calculate_required_morphological_metrics(delta_t=100*u.Myr, version='2D',
                                              quenched_pop=True, threshold=-10.5,
