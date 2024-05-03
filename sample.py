@@ -2,14 +2,11 @@
 from os.path import exists
 import numpy as np
 
-from astropy.cosmology import FlatLambdaCDM
 from astropy.table import Table, join
 import h5py
 import requests
 
-from core import add_dataset, bsPath, get, get_mpb_values,  mpbPath
-
-cosmo = FlatLambdaCDM(H0=67.74, Om0=0.3089, Ob0=0.0486) # the TNG cosmology
+from core import add_dataset, bsPath, cosmo, get, get_mpb_values,  mpbPath
 
 def build_final_sample(simName='TNG50-1', snapNum=99) :
     
@@ -162,7 +159,7 @@ def primary_and_satellite_flags(simName='TNG50-1', snapNum=99, mass_min=8.0) :
     outfile = outDir + '/{}_{}_primary-satellite-flags.fits'.format(
         simName, snapNum)
     
-    mass = np.power(10, mass_min)/1e10*cosmo.h
+    mass = np.power(10, mass_min)/1e10*cosmo().h
     
     url = ('http://www.tng-project.org/api/{}/snapshots/{}/subhalos/'.format(
         simName, snapNum) + '?mass_stars__gte={}&primary_flag='.format(mass))
@@ -207,7 +204,7 @@ def resave_as_hdf5(simName='TNG50-1', snapNum=99) :
     # get the redshifts and times (ages of the universe) for all the snapshots
     redshift_table = Table.read(redshift_file)
     redshifts = redshift_table['Redshift'].value
-    times = cosmo.age(redshifts).value
+    times = cosmo().age(redshifts).value
     
     # check if the outfile exists, and if not, populate key information into it
     if not exists(outfile) :

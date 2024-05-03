@@ -2,25 +2,17 @@
 from os.path import exists
 import numpy as np
 
-from astropy.cosmology import FlatLambdaCDM
 from astropy.table import Table
 import astropy.units as u
 import h5py
 from scipy.ndimage import gaussian_filter1d, gaussian_filter
 from pypdf import PdfWriter
 
-from core import (add_dataset, bsPath, determine_mass_bin_indices, find_nearest,
-                  get_particles, get_quenched_data, get_rotation_input,
-                  get_sf_particles, get_sf_particle_positions)
+from core import (add_dataset, bsPath, cosmo, determine_mass_bin_indices,
+                  find_nearest, get_particles, get_quenched_data,
+                  get_rotation_input, get_sf_particles, get_sf_particle_positions)
 import plotting as plt
 from projection import calculate_MoI_tensor, rotation_matrix_from_MoI_tensor
-from slack import send_message
-
-cosmo = FlatLambdaCDM(H0=67.74, Om0=0.3089, Ob0=0.0486) # the TNG cosmology
-
-import warnings
-warnings.filterwarnings('ignore', category=RuntimeWarning)
-
 
 def comp_prop_plots_for_sample(simName='TNG50-1', snapNum=99, hw=0.1,
                                minNum=50, nelson2021version=True, save=False) :
@@ -515,7 +507,7 @@ def proposal_plot(q_subfin, q_subID, q_mass, q_radii, q_center, snaps,
     
     for snap in snaps :
         
-        resolution = (0.15*u.arcsec)/cosmo.arcsec_per_kpc_proper(
+        resolution = (0.15*u.arcsec)/cosmo().arcsec_per_kpc_proper(
             redshifts[snap])
         res = resolution/(q_radii[snap]*u.kpc)
         fwhms.append(res)

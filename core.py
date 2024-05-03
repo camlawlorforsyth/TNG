@@ -9,7 +9,6 @@ import h5py
 import requests
 from scipy.interpolate import interp1d
 
-cosmo = FlatLambdaCDM(H0=67.74, Om0=0.3089, Ob0=0.0486) # the TNG cosmology
 solar_Z = 0.0127 # Wiersma+ 2009, MNRAS, 399, 574; used by TNG documentation
 
 def add_dataset(h5file, data, label, dtype=None) :
@@ -30,13 +29,16 @@ def bsPath(simName) :
     return '{}'.format(simName)
 
 def convert_distance_units(distances) :
-    return distances/cosmo.h
+    return distances/cosmo().h
 
 def convert_mass_units(masses) :
-    return np.log10(masses*1e10/cosmo.h)
+    return np.log10(masses*1e10/cosmo().h)
 
 def convert_metallicity_units(metallicities) :
     return np.log10(metallicities/solar_Z)
+
+def cosmo() :
+    return FlatLambdaCDM(H0=67.74, Om0=0.3089, Ob0=0.0486) # the TNG cosmology
 
 def cutoutPath(simName, snapNum) :
     return bsPath(simName) + '/cutouts_{:3.0f}/'.format(snapNum).replace(' ', '0')
@@ -172,7 +174,7 @@ def get_mpb_values(subID, simName='TNG50-1', snapNum=99, pad=True) :
             UVK = np.delete(UBVK, 1, axis=1)
             
             # at snapshot 0, some masses are 0, which logarithms don't like
-            logM[logM == 0] = 1e-10*cosmo.h
+            logM[logM == 0] = 1e-10*cosmo().h
         
         # pad the arrays to all have 100 entries
         if pad and (len(snapNums) < 100) :
@@ -221,7 +223,7 @@ def get_particle_positions(simName, snapNum, snap, subID, center) :
             dz = hf['PartType4']['Coordinates'][:, 2] - center[2]
             
             # convert mass units
-            masses = hf['PartType4']['GFM_InitialMass'][:]*1e10/cosmo.h
+            masses = hf['PartType4']['GFM_InitialMass'][:]*1e10/cosmo().h
             
             # formation ages are in units of scalefactor
             formation_ages = hf['PartType4']['GFM_StellarFormationTime'][:]
@@ -247,7 +249,7 @@ def get_particles(simName, snapNum, snap, subID, center) :
             dz = hf['PartType4']['Coordinates'][:, 2] - center[2]
             
             # convert mass units
-            masses = hf['PartType4']['GFM_InitialMass'][:]*1e10/cosmo.h
+            masses = hf['PartType4']['GFM_InitialMass'][:]*1e10/cosmo().h
             
             # formation ages are in units of scalefactor
             formation_ages = hf['PartType4']['GFM_StellarFormationTime'][:]
@@ -315,7 +317,7 @@ def get_rotation_input(simName, snapNum, snap, subID) :
             gas_sfrs = hf['PartType0']['StarFormationRate'][:]
             
             # convert mass units
-            gas_masses = hf['PartType0']['Masses'][:]*1e10/cosmo.h
+            gas_masses = hf['PartType0']['Masses'][:]*1e10/cosmo().h
     except KeyError :
         gas_masses, gas_sfrs, gas_coords = None, None, None
     
@@ -325,8 +327,8 @@ def get_rotation_input(simName, snapNum, snap, subID) :
             star_ages = hf['PartType4']['GFM_StellarFormationTime'][:]
             
             # convert mass units
-            star_gfm = hf['PartType4']['GFM_InitialMass'][:]*1e10/cosmo.h
-            star_masses = hf['PartType4']['Masses'][:]*1e10/cosmo.h
+            star_gfm = hf['PartType4']['GFM_InitialMass'][:]*1e10/cosmo().h
+            star_masses = hf['PartType4']['Masses'][:]*1e10/cosmo().h
         
         # limit particles to those that have positive formation times
         mask = (star_ages > 0)
@@ -341,9 +343,9 @@ def get_rotation_input(simName, snapNum, snap, subID) :
 
 def get_sf_particle_positions(ages, masses, dx, dy, dz, time, delta_t=100*u.Myr) :
     
-    # cosmo.age(redshift) is slow for very large arrays, so we'll work in units
+    # cosmo().age(redshift) is slow for very large arrays, so we'll work in units
     # of scalefactor and convert delta_t. t_minus_delta_t is in units of redshift
-    t_minus_delta_t = z_at_value(cosmo.age, time*u.Gyr - delta_t, zmax=np.inf)
+    t_minus_delta_t = z_at_value(cosmo().age, time*u.Gyr - delta_t, zmax=np.inf)
     limit = 1/(1 + t_minus_delta_t) # in units of scalefactor
     
     # limit particles to those that formed within the past delta_t time
@@ -353,9 +355,9 @@ def get_sf_particle_positions(ages, masses, dx, dy, dz, time, delta_t=100*u.Myr)
 
 def get_sf_particles(ages, masses, rs, time, delta_t=100*u.Myr) :
     
-    # cosmo.age(redshift) is slow for very large arrays, so we'll work in units
+    # cosmo().age(redshift) is slow for very large arrays, so we'll work in units
     # of scalefactor and convert delta_t. t_minus_delta_t is in units of redshift
-    t_minus_delta_t = z_at_value(cosmo.age, time*u.Gyr - delta_t, zmax=np.inf)
+    t_minus_delta_t = z_at_value(cosmo().age, time*u.Gyr - delta_t, zmax=np.inf)
     limit = 1/(1 + t_minus_delta_t) # in units of scalefactor
     
     # limit particles to those that formed within the past delta_t time
@@ -388,7 +390,7 @@ def save_lookup_table(simName='TNG50-1'):
     if (not exists(outfile_fits)) and (not exists(outfile_hdf5)) :
         
         scalefactor = np.linspace(0, 1, 1000001) # limited to [0, 1]
-        age = cosmo.age(1/scalefactor - 1).value
+        age = cosmo().age(1/scalefactor - 1).value
         
         # write to fits file
         table = Table([scalefactor, age], names=('scalefactor', 'age'))
