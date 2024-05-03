@@ -146,60 +146,6 @@ def determine_quenched_systems_relative(simName='TNG50-1', snapNum=99, kernel=2)
     
     return
 
-def save_SFMS_with_quenched_galaxies_plot() :
-    
-    colwidth = 3.35224200913242
-    # textwidth = 7.10000594991006
-    textheight = 9.095321710253218
-    
-    # get the stellar masses and SFHs for the entire sample
-    with h5py.File('TNG50-1/TNG50-1_99_sample(t).hdf5', 'r') as hf :
-        logM = hf['logM'][:]
-        SFHs = hf['SFH'][:]
-        SFMS = hf['SFMS'][:]
-        quenched = hf['quenched'][:]
-    
-    # the edges, 16th, and 84th percentiles will be loaded from the helper file
-    with h5py.File('TNG50-1/TNG50-1_99_SFMS_helper.hdf5', 'r') as helper :
-        centers = helper['Snapshot_99/edges'][:-1] + 0.1
-        los = helper['Snapshot_99/los'][:]
-        his = helper['Snapshot_99/his'][:]
-    
-    # limit the selections to the massive population
-    mass_mask = (logM[:, 99] >= 9.5)
-    SFMS_mask = (SFMS[:, 99].astype(bool))[mass_mask]
-    SFRs = SFHs[:, 99][mass_mask]
-    masses = logM[:, 99][mass_mask]
-    quenched = quenched[mass_mask]
-    sf_mask = (~SFMS_mask) & (~quenched)
-    
-    # define a mask for the quiescent population
-    q_mask = (SFRs == 0)
-    
-    # update values in the array to prepare for taking the logarithm
-    SFRs[q_mask] = 0.00066861
-    SFRs = np.log10(SFRs)
-    
-    # perturb the quiescent values
-    SFRs[q_mask] = np.log10(0.00066861) - np.random.rand(np.sum(q_mask))
-    
-    # create three populations: quenched, SF, and SFMS
-    quenched_masses, quenched_SFRs = masses[quenched], SFRs[quenched]
-    sf_masses, sf_SFRs = masses[sf_mask], SFRs[sf_mask]
-    SFMS_masses, SFMS_SFRs = masses[SFMS_mask], SFRs[SFMS_mask]
-    
-    # plot the SFMS with those percentiles
-    outfile = 'SFMS_z0_with_quenched_new.pdf'
-    plt.plot_scatter_multi_with_bands(SFMS_masses, SFMS_SFRs,
-        quenched_masses, quenched_SFRs, sf_masses, sf_SFRs, centers, los, his,
-        xlabel=r'$\log(M_{*}/{\rm M}_{\odot})$',
-        ylabel=r'$\log({\rm SFR}/{\rm M}_{\odot}~{\rm yr}^{-1}$)',
-        xmin=9.5, xmax=12, ymin=-4.3, ymax=2,
-        figsizeheight=textheight/2, figsizewidth=colwidth,
-        outfile=outfile, save=False)
-    
-    return
-
 def save_SFH_with_quenched_galaxy_plot() :
     
     colwidth = 3.35224200913242
@@ -259,6 +205,60 @@ def save_SFH_with_quenched_galaxy_plot() :
         xlabel=r'$t$ (Gyr)', ylabel=r'SFR (${\rm M}_{\odot}$ yr$^{-1}$)',
         xmin=0, xmax=13.8, ymin=0, ymax=10, figsizeheight=textheight/2,
         figsizewidth=colwidth, save=False, outfile='SFHs.pdf')
+    
+    return
+
+def save_SFMS_with_quenched_galaxies_plot() :
+    
+    colwidth = 3.35224200913242
+    # textwidth = 7.10000594991006
+    textheight = 9.095321710253218
+    
+    # get the stellar masses and SFHs for the entire sample
+    with h5py.File('TNG50-1/TNG50-1_99_sample(t).hdf5', 'r') as hf :
+        logM = hf['logM'][:]
+        SFHs = hf['SFH'][:]
+        SFMS = hf['SFMS'][:]
+        quenched = hf['quenched'][:]
+    
+    # the edges, 16th, and 84th percentiles will be loaded from the helper file
+    with h5py.File('TNG50-1/TNG50-1_99_SFMS_helper.hdf5', 'r') as helper :
+        centers = helper['Snapshot_99/edges'][:-1] + 0.1
+        los = helper['Snapshot_99/los'][:]
+        his = helper['Snapshot_99/his'][:]
+    
+    # limit the selections to the massive population
+    mass_mask = (logM[:, 99] >= 9.5)
+    SFMS_mask = (SFMS[:, 99].astype(bool))[mass_mask]
+    SFRs = SFHs[:, 99][mass_mask]
+    masses = logM[:, 99][mass_mask]
+    quenched = quenched[mass_mask]
+    sf_mask = (~SFMS_mask) & (~quenched)
+    
+    # define a mask for the quiescent population
+    q_mask = (SFRs == 0)
+    
+    # update values in the array to prepare for taking the logarithm
+    SFRs[q_mask] = 0.00066861
+    SFRs = np.log10(SFRs)
+    
+    # perturb the quiescent values
+    SFRs[q_mask] = np.log10(0.00066861) - np.random.rand(np.sum(q_mask))
+    
+    # create three populations: quenched, SF, and SFMS
+    quenched_masses, quenched_SFRs = masses[quenched], SFRs[quenched]
+    sf_masses, sf_SFRs = masses[sf_mask], SFRs[sf_mask]
+    SFMS_masses, SFMS_SFRs = masses[SFMS_mask], SFRs[SFMS_mask]
+    
+    # plot the SFMS with those percentiles
+    outfile = 'SFMS_z0_with_quenched_new.pdf'
+    plt.plot_scatter_multi_with_bands(SFMS_masses, SFMS_SFRs,
+        quenched_masses, quenched_SFRs, sf_masses, sf_SFRs, centers, los, his,
+        xlabel=r'$\log(M_{*}/{\rm M}_{\odot})$',
+        ylabel=r'$\log({\rm SFR}/{\rm M}_{\odot}~{\rm yr}^{-1}$)',
+        xmin=9.5, xmax=12, ymin=-4.3, ymax=2,
+        figsizeheight=textheight/2, figsizewidth=colwidth,
+        outfile=outfile, save=False)
     
     return
 
