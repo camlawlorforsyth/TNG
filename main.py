@@ -1,20 +1,15 @@
 
 import os
 
-# import age_gradients
 import catalogs
-# import concatenate
 import core
 import cutouts
 import diagnostics
-# import psi
 import quenched
 import sample
 import satellite_time
 import sfhs
 import sfms
-# import xi
-# import zeta
 
 def premain(simName, snapNum) :
     

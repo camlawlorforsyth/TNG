@@ -135,6 +135,7 @@ dmypy.json
 # generated files
 *.fits
 *.gif
+*.html
 *.npy
 *.npz
 *.pdf
