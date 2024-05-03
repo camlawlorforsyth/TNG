@@ -4,8 +4,9 @@ import numpy as np
 
 import astropy.units as u
 import h5py
+from scipy.optimize import curve_fit
 
-from core import add_dataset, bsPath, get
+from core import add_dataset, bsPath, get, vertex
 import plotting as plt
 
 def determine_satellite_time_dynamical(simName='TNG50-1', snapNum=99) :
@@ -202,59 +203,80 @@ def get_all_primary_flags(simName='TNG50-1', snapNum=99) :
     
     return
 
-with h5py.File('TNG50-1/TNG50-1_99_sample(t).hdf5', 'r') as hf :
-    redshifts = hf['redshifts'][:]
-    times = hf['times'][:]*u.Gyr
-    subIDfinals = hf['SubhaloID'][:]
-    quenched = hf['quenched'][:]
-    tonsets = hf['onset_times'][:]
-    logM = hf['logM'][:]
-    cluster = hf['cluster'][:]
-    hmGroup = hf['hm_group'][:]
-    lmGroup = hf['lm_group'][:]
-    field = hf['field'][:]
-
-with h5py.File('TNG50-1/TNG50-1_99_overdensity(t).hdf5', 'r') as hf :
-    overdensity = hf['delta'][:]
-
-with h5py.File('TNG50-1/TNG50-1_99_satellite_times.hdf5', 'r') as hf :
-    tsats = hf['tsats'][:]
-    tsat_indices = hf['tsat_indices'][:]
-
-with h5py.File('TNG50-1/TNG50-1_99_mechanism.hdf5', 'r') as hf :
-    outside_in = hf['outside-in'][:] # 109
-    inside_out = hf['inside-out'][:] # 103
-    uniform = hf['uniform'][:]       # 8
-    ambiguous = hf['ambiguous'][:]   # 58
-
-overdensity = overdensity[:, -1]
-logM = logM[:, -1]
-
-env = np.array([4*cluster, 3*hmGroup, 2*lmGroup, field]).T
-env = np.sum(env, axis=1)
-
-mech = np.array([4*outside_in, 3*inside_out, 2*uniform, ambiguous]).T
-mech = np.sum(mech, axis=1)
-
-# plot the results, using an optional mask
-# cluster is 4, hmGroup is 3, lmGroup is 2, field is 1
-mask = (logM >= 9.5) # (mech == 4) # & (tsats > 0) #& (tsats > 3.3) & (tsats < 13.79)
-colour = env[mask] # red is cluster, yellow/green is hmGroup, cyan is lmGroup, purple is field
-# colour = mech[mask] # red is outside-in, yellow/green is inside-out, cyan is uniform, purple is ambiguous
-
-# delayed = 100*np.sum(tonsets[mask] >= tsats[mask] + 1)/np.sum(mask)
-# preprocessed = 100*np.sum(tonsets[mask] < tsats[mask] - 1)/np.sum(mask)
-# print('delayed = {:.1f}%, preprocessed = {:.1f}%'.format(delayed, preprocessed))
-
-plt.plot_scatter(tsats[mask], tonsets[mask], colour, '', 'o',
-                 size=np.power(logM[mask], 5)/1000,
-                 xlabel=r'$t_{\rm sat}$ (Gyr)',
-                 ylabel=r'$t_{\rm onset}$ (Gyr)',
-                 xmin=0, xmax=14, ymin=0, ymax=14, loc=2,
-                 figsizeheight=8, figsizewidth=8, vmin=1, vmax=4)
-
-# from scipy.stats import pearsonr, spearmanr
-# mask = (tsats > 0)
-# pearson = pearsonr(tsats[mask], tonsets[mask])
-# spearman = spearmanr(tsats[mask], tonsets[mask])
-# print(pearson, spearman)
+def satellite_onset_time_plot() :
+    
+    textwidth = 7.10000594991006
+    textheight = 9.095321710253218
+    
+    with h5py.File('TNG50-1/TNG50-1_99_sample(t).hdf5', 'r') as hf :
+        # redshifts = hf['redshifts'][:]
+        # times = hf['times'][:]*u.Gyr
+        # subIDfinals = hf['SubhaloID'][:]
+        quenched = hf['quenched'][:]
+        tonsets = hf['onset_times'][:]
+        logM = hf['logM'][:, -1]
+        env = np.array([12*hf['cluster'][:], 10*hf['hm_group'][:],
+                         8*hf['lm_group'][:], 6*hf['field'][:]]).T
+        env = np.sum(env, axis=1)
+    
+    # with h5py.File('TNG50-1/TNG50-1_99_overdensity(t).hdf5', 'r') as hf :
+    #     overdensity = hf['delta'][:, -1]
+    
+    with h5py.File('TNG50-1/TNG50-1_99_satellite_times.hdf5', 'r') as hf :
+        tsats = hf['tsats'][:]
+    
+    with h5py.File('TNG50-1/TNG50-1_99_mechanism.hdf5', 'r') as hf :
+        mech = np.array([1*hf['inside-out'][:], 3*hf['outside-in'][:],
+                         5*hf['ambiguous'][:], 5*hf['uniform'][:]]).T
+        mech = np.sum(mech, axis=1)
+    
+    # make a mask for the massive quenched sample
+    mask = (logM >= 9.5) & quenched
+    
+    # apply the mask to the quantities of interest
+    tonsets = tonsets[mask]
+    tsats = tsats[mask]
+    env = env[mask]
+    mech = mech[mask]
+    logM = logM[mask]
+    
+    # determine the size of the points for use in plotly
+    mini, stretch = 10, 20 # define the minimum size and the maximum stretch
+    diff = (np.max(logM) - np.min(logM))/2
+    logM_fit_vals = np.array([np.min(logM), np.min(logM) + diff, np.max(logM)])
+    size_fit_vals = np.array([1, np.sqrt(stretch), stretch])*mini
+    # adapted from https://stackoverflow.com/questions/12208634
+    popt, _ = curve_fit(lambda xx, aa: vertex(xx, aa, logM_fit_vals[0], mini),
+                        logM_fit_vals, size_fit_vals) # fit the curve
+    size = vertex(logM, popt[0], logM_fit_vals[0], mini) # get the size for the points
+    
+    # prepare values for plotting
+    xs1 = [tsats[(mech == 1) & (env == 12)], tsats[(mech == 1) & (env == 10)],
+           tsats[(mech == 1) & (env == 8)], tsats[(mech == 1) & (env == 6)]]
+    ys1 = [tonsets[(mech == 1) & (env == 12)], tonsets[(mech == 1) & (env == 10)],
+           tonsets[(mech == 1) & (env == 8)], tonsets[(mech == 1) & (env == 6)]]
+    s1 = [size[(mech == 1) & (env == 12)], size[(mech == 1) & (env == 10)],
+          size[(mech == 1) & (env == 8)], size[(mech == 1) & (env == 6)]]
+    
+    colors = ['r', 'gold', 'c', 'g']
+    markers = ['o', 'o', 'o', 'o']
+    alphas = [0.5, 0.5, 0.6, 0.3]
+    xx = np.linspace(0, 14, 100)
+    labels = ['cluster', 'high-mass group', 'low-mass group', 'field']
+    xs2 = [tsats[(mech == 3) & (env == 12)], tsats[(mech == 3) & (env == 10)],
+           tsats[(mech == 3) & (env == 8)], tsats[(mech == 3) & (env == 6)]]
+    ys2 = [tonsets[(mech == 3) & (env == 12)], tonsets[(mech == 3) & (env == 10)],
+           tonsets[(mech == 3) & (env == 8)], tonsets[(mech == 3) & (env == 6)]]
+    s2 = [size[(mech == 3) & (env == 12)], size[(mech == 3) & (env == 10)],
+          size[(mech == 3) & (env == 8)], size[(mech == 3) & (env == 6)]]
+    
+    plt.double_scatter_with_line(xs1, ys1, colors, markers, alphas, xx, xx,
+        xs2, ys2, colors, markers, alphas, xx, xx, labels, s1=s1, s2=s2,
+        xlabel1=r'$t_{\rm satellite}$ (Gyr)', ylabel1=r'$t_{\rm onset}$ (Gyr)',
+        xlabel2=r'$t_{\rm satellite}$ (Gyr)', ylabel2='',
+        titles=['inside-out', 'outside-in'],
+        xmin1=1, xmax1=14, xmin2=1, xmax2=14, ymin=1, ymax=14,
+        figsizewidth=textwidth, figsizeheight=textheight/2,
+        save=False, outfile='time_comparison.pdf')
+    
+    return

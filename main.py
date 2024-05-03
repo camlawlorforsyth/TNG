@@ -84,19 +84,9 @@ def main(simName='TNG50-1', snapNum=99, hw=0.1, minNum=50, kernel=2) :
     # compute various star formation related quantities of interest through time
     diagnostics.find_control_sf_sample()
     diagnostics.calculate_required_radial_profiles()
-    diagnostics.calculate_required_morphological_parameters()
-    # diagnostics.determine_diagnostics()                    # to delete
-    # diagnostics.determine_diagnostics_for_matched_sample() # to delete
+    diagnostics.calculate_required_morphological_metrics()
     
-    # zeta.zeta_for_sample(simName, snapNum) # to delete
-    # xi.xi_for_sample(simName, snapNum)     # to delete
-    # psi.determine_psi(simName, snapNum)    # to delete
-    
-    # save plots together - this can be deleted later
-    # concatenate.concatenate_diagnostics(subIDs, masses)
-    
-    # revisit the age gradients after first investigating properties
-    # of star formation in the quenched sample
-    # age_gradients.determine_age_gradients(simName, snapNum, kernel=kernel)
+    # prepare the morphological metrics for classification
+    diagnostics.prepare_morphological_metrics_for_classification()
     
     return
