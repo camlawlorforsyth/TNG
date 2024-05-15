@@ -2,9 +2,11 @@
 import os
 
 import catalogs
+import classification
+import comprehensive_view
 import core
 import cutouts
-import diagnostics
+import metrics
 import quenched
 import sample
 import satellite_time
@@ -41,8 +43,7 @@ def main(simName='TNG50-1', snapNum=99, hw=0.1, minNum=50, kernel=2) :
     # creates simName_snapNum_primary-satellite-flagIDs.fits
     # creates simName_snapNum_env.fits
     # creates simName_snapNum_sample.fits
-    # creates simName_snapNum_sample.hdf5
-    # appends to simName_snapNum_sample.hdf5
+    # creates and appends to simName_snapNum_sample.hdf5
     sample.primary_and_satellite_flags(simName=simName, snapNum=snapNum)
     sample.determine_environment(simName=simName, snapNum=snapNum)
     sample.build_final_sample(simName=simName, snapNum=snapNum)
@@ -72,16 +73,66 @@ def main(simName='TNG50-1', snapNum=99, hw=0.1, minNum=50, kernel=2) :
         snapNum=snapNum, kernel=kernel)
     
     # determine the 'primary_flag' as a function of time for selected subhalos
-    # appends to simName_snapNum_quenched_SFHs(t).hdf5
-    satellite_time.add_primary_flags(simName, snapNum)
+    # appends to simName_snapNum_primary_flags(t).hdf5
+    satellite_time.get_all_primary_flags(simName, snapNum)
     satellite_time.determine_satellite_time(simName, snapNum)
     
     # compute various star formation related quantities of interest through time
-    diagnostics.find_control_sf_sample()
-    diagnostics.calculate_required_radial_profiles()
-    diagnostics.calculate_required_morphological_metrics()
+    # creates locations_mask_control_sf.npy
+    # creates locations_mask_quenched.npy
+    # creates and appends to simName_snapNum_massive_radial_profiles(t).hdf5
+    # creates and appends to simName_snapNum_massive_C_SF(t).hdf5
+    # creates and appends to simName_snapNum_massive_R_SF(t).hdf5
+    # creates and appends to simName_snapNum_massive_Rinner(t).hdf5
+    # creates and appends to simName_snapNum_massive_Router(t).hdf5
+    metrics.find_control_sf_sample()
+    metrics.calculate_required_radial_profiles()
+    metrics.calculate_required_morphological_metrics()
     
     # prepare the morphological metrics for classification
-    diagnostics.prepare_morphological_metrics_for_classification()
+    # creates morphological_metrics_-10.5_+-1.fits
+    metrics.prepare_morphological_metrics_for_classification()
+    
+    
+    # comprehensive_view.
+    
+    
+    return
+
+def plots() :
+    
+    # creates SFHs.pdf
+    quenched.save_SFH_with_quenched_galaxy_plot()
+    
+    # creates SFMS_z0_with_quenched.pdf
+    quenched.save_SFMS_with_quenched_galaxies_plot()
+    
+    # creates SMF.pdf
+    quenched.save_SMF_with_quenched_galaxies_plot()
+    
+    # creates postage_stamps_and_sSFR_profiles.pdf
+    # comprehensive_view.
+    
+    # doesn't create any saved plot
+    # metrics.save_mass_distribution_plots()
+    
+    # creates metric_example.pdf
+    metrics.save_morphological_metric_example_evolution_plot()
+    
+    # creates metric_global_evolution.pdf and metric_global_evolution_amb.pdf
+    metrics.save_morphological_metric_global_evolution_plot()
+    
+    # creates metric_plane_evolution.pdf
+    metrics.save_CSF_and_RSF_evolution_plot()
+    
+    # creates morphological_metrics_interactive_figure_1.html and
+    metrics.save_plotly_plots() # morphological_metrics_interactive_figure_2.html
+    
+    # creates classification_boundaries.pdf
+    classification.save_classification_boundaries_plot()
+    classification.save_purity_completness_plot()
+    
+    # creates time_comparison.pdf
+    satellite_time.save_time_comparison_plot()
     
     return

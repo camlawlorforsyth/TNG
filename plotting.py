@@ -10,6 +10,7 @@ from matplotlib.colors import LogNorm, Normalize
 import matplotlib.gridspec as gridspec
 from matplotlib.patches import Circle
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from scipy.ndimage import gaussian_filter
 
 currentFig = 1
 
@@ -270,10 +271,10 @@ def histogram_large(h1, h2, h3, h4, h5, h6, h7, h8, h9, h10, h11, h12, h13,
     ax9.set_yticks([0, 1, 2, 3, 4])
     ax13.set_yticks([0, 1, 2, 3, 4])
     
-    ax1.title.set_text(titles[0])
-    ax2.title.set_text(titles[1])
-    ax3.title.set_text(titles[2])
-    ax4.title.set_text(titles[3])
+    ax1.set_title(titles[0], fontsize=10)
+    ax2.set_title(titles[1], fontsize=10)
+    ax3.set_title(titles[2], fontsize=10)
+    ax4.set_title(titles[3], fontsize=10)
     
     ax9.legend(loc=loc, facecolor='whitesmoke', framealpha=1)
     
@@ -838,7 +839,7 @@ def plot_comprehensive_plot(title1, title2, title3, hist1, hist2, hist3,
         _, _, ymin_SFH, _ = ax7.axis()
     if (ymax_SFH == None) :
         _, _, _, ymax_SFH = ax7.axis()
-    cmap_SFH = mcol.LinearSegmentedColormap.from_list('BlRd',['b','r'])
+    cmap_SFH = mcol.LinearSegmentedColormap.from_list('BlRd', ['b', 'r'])
     ax7.imshow([[0.,1.], [0.,1.]], extent=(tonset, tterm, ymin_SFH, ymax_SFH),
                 cmap=cmap_SFH, interpolation='bicubic', alpha=0.15, aspect='auto')
     ax7.axvline(thirtySeven, color='k', ls=':')
@@ -859,7 +860,7 @@ def plot_comprehensive_plot(title1, title2, title3, hist1, hist2, hist3,
         _, _, ymin_SMH, _ = ax8.axis()
     if (ymax_SMH == None) :
         _, _, _, ymax_SFH = ax8.axis()
-    cmap_SFH = mcol.LinearSegmentedColormap.from_list('BlRd',['b','r'])
+    cmap_SFH = mcol.LinearSegmentedColormap.from_list('BlRd', ['b', 'r'])
     ax8.imshow([[0.,1.], [0.,1.]], extent=(tonset, tterm, ymin_SFH, ymax_SFH),
                 cmap=cmap_SFH, interpolation='bicubic', alpha=0.15, aspect='auto')
     ax8.axvline(thirtySeven, color='k', ls=':')
@@ -1476,8 +1477,8 @@ def double_scatter_with_line(xs1, ys1, colors1, markers1, alphas1, x1, y1,
     ax1.set_ylim(ymin, ymax)
     
     if titles :
-        ax1.title.set_text(titles[0])
-        ax2.title.set_text(titles[1])
+        ax1.set_title(titles[0], fontsize=10)
+        ax2.set_title(titles[1], fontsize=10)
     
     legend = ax1.legend(facecolor='whitesmoke', framealpha=1, loc=loc)
     
@@ -1554,12 +1555,143 @@ def quad_scatter(xs1, ys1, xs2, ys2, xs3, ys3, xs4, ys4, colors,
     
     # ax1.set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1])
     
-    ax1.title.set_text(titles[0])
-    ax2.title.set_text(titles[1])
-    ax3.title.set_text(titles[2])
-    ax4.title.set_text(titles[3])
+    ax1.set_title(titles[0], fontsize=10)
+    ax2.set_title(titles[1], fontsize=10)
+    ax3.set_title(titles[2], fontsize=10)
+    ax4.set_title(titles[3], fontsize=10)
     
     ax4.legend(facecolor='whitesmoke', framealpha=1, loc=loc)
+    
+    plt.tight_layout()
+    
+    if save :
+        plt.savefig(outfile, bbox_inches='tight')
+        plt.close()
+    else :
+        plt.show()
+    
+    return
+
+def quad_grid_plot(xs, ys1, los1, his1, colors1, labels1, ys2, los2, his2,
+                   colors2, labels2, ys3, colors3, labels3, ys4, colors4,
+                   labels4, styles, xlabel=None, ylabel=None, titles=None,
+                   figsizewidth=9.5, figsizeheight=7, loc=0, save=False,
+                   outfile=None) :
+    
+    global currentFig
+    fig = plt.figure(currentFig, figsize=(figsizewidth, figsizeheight))
+    currentFig += 1
+    plt.clf()
+    
+    gs = fig.add_gridspec(2, 2, hspace=0, wspace=0)
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax2 = fig.add_subplot(gs[0, 1], sharey=ax1)
+    ax3 = fig.add_subplot(gs[1, 0], sharex=ax1)
+    ax4 = fig.add_subplot(gs[1, 1], sharex=ax2, sharey=ax3)
+    
+    for i in range(4) :
+        ax1.fill_between(xs, los1[i], his1[i], color=colors1[i], alpha=0.2)
+        ax1.plot(xs, ys1[i], marker='', linestyle=styles[i], color=colors1[i],
+                 label=labels1[i])
+    ax1.axvline(0, c='k', ls=':', alpha=0.3)
+    
+    for i in range(4) :
+        ax2.fill_between(xs, los2[i], his2[i], color=colors2[i], alpha=0.2)
+        ax2.plot(xs, ys2[i], marker='', linestyle=styles[i], color=colors2[i],
+                 label=labels2[i])
+    ax2.axvline(0, c='k', ls=':', alpha=0.3)
+    
+    for i in range(6) :
+        ax3.plot(xs, ys3[i], marker='', linestyle=styles[i], color=colors3[i],
+                 label=labels3[i])
+    # adapted from https://stackoverflow.com/questions/70908289
+    cm3_1 = mcol.LinearSegmentedColormap.from_list('custom3', [colors3[2], colors3[4]])
+    poly3_1 = ax3.fill_between(xs, ys3[2], ys3[4], lw=0, color='none')
+    verts3_1 = np.vstack([p.vertices for p in poly3_1.get_paths()])
+    ymini, ymaxi = verts3_1[:, 1].min(), verts3_1[:, 1].max()
+    interp3_1 = np.array([np.interp(np.linspace(ymini, ymaxi, 1000), [y1i, y2i], [0, 1])
+                          for y1i, y2i in zip(ys3[2], ys3[4])]).T
+    grad3_1 = ax3.imshow(interp3_1, cmap=cm3_1, aspect='auto', origin='lower',
+                         extent=[xs.min(), xs.max(), ymini, ymaxi], alpha=0.3)
+    grad3_1.set_clip_path(poly3_1.get_paths()[0], transform=ax3.transData)
+    
+    cm3_2 = mcol.LinearSegmentedColormap.from_list('custom3', [colors3[5], colors3[3]])
+    poly3_2 = ax3.fill_between(xs, ys3[5], ys3[3], lw=0, color='none')
+    verts3_2 = np.vstack([p.vertices for p in poly3_2.get_paths()])
+    ymini, ymaxi = verts3_2[:, 1].min(), verts3_2[:, 1].max()
+    interp3_2 = np.array([np.interp(np.linspace(ymini, ymaxi, 1000), [y1i, y2i], [0, 1])
+                          for y1i, y2i in zip(ys3[5], ys3[3])]).T
+    grad3_2 = ax3.imshow(interp3_2, cmap=cm3_2, aspect='auto', origin='lower',
+                          extent=[xs.min(), xs.max(), ymini, ymaxi], alpha=0.3)
+    grad3_2.set_clip_path(poly3_2.get_paths()[0], transform=ax3.transData)
+    
+    ax3.axvline(0, c='k', ls=':', alpha=0.3)
+    
+    for i in range(6) :
+        ax4.plot(xs, ys4[i], marker='', linestyle=styles[i], color=colors4[i],
+                 label=labels4[i])
+    
+    cm4_1 = mcol.LinearSegmentedColormap.from_list('custom3', [colors4[2], colors4[4]])
+    poly4_1 = ax3.fill_between(xs, ys4[2], ys4[4], lw=0, color='none')
+    verts4_1 = np.vstack([p.vertices for p in poly4_1.get_paths()])
+    ymini, ymaxi = verts4_1[:, 1].min(), verts4_1[:, 1].max()
+    interp4_1 = np.array([np.interp(np.linspace(ymini, ymaxi, 1000), [y1i, y2i], [0, 1])
+                          for y1i, y2i in zip(ys4[2], ys4[4])]).T
+    grad4_1 = ax4.imshow(interp4_1, cmap=cm4_1, aspect='auto', origin='lower',
+                         extent=[xs.min(), xs.max(), ymini, ymaxi], alpha=0.3)
+    grad4_1.set_clip_path(poly4_1.get_paths()[0], transform=ax4.transData)
+    
+    cm4_2 = mcol.LinearSegmentedColormap.from_list('custom3', [colors4[5], colors4[3]])
+    poly4_2 = ax3.fill_between(xs, ys4[5], ys4[3], lw=0, color='none')
+    verts4_2 = np.vstack([p.vertices for p in poly4_2.get_paths()])
+    ymini, ymaxi = verts4_2[:, 1].min(), verts4_2[:, 1].max()
+    interp4_2 = np.array([np.interp(np.linspace(ymini, ymaxi, 1000), [y1i, y2i], [0, 1])
+                          for y1i, y2i in zip(ys4[5], ys4[3])]).T
+    grad4_2 = ax4.imshow(interp4_2, cmap=cm4_2, aspect='auto', origin='lower',
+                         extent=[xs.min(), xs.max(), ymini, ymaxi], alpha=0.3)
+    grad4_2.set_clip_path(poly4_2.get_paths()[0], transform=ax4.transData)
+    
+    ax4.axvline(0, c='k', ls=':', alpha=0.3)
+    
+    ax1.set_ylabel(ylabel)
+    ax3.set_ylabel(ylabel)
+    ax3.set_xlabel(xlabel)
+    ax4.set_xlabel(xlabel)
+    
+    ax1.set_xlim(-2, 2)
+    ax2.set_xlim(-2, 2)
+    ax1.set_ylim(0, 1)
+    ax3.set_ylim(0, 1)
+    
+    ax1.tick_params(bottom=False, labelbottom=False)
+    ax2.tick_params(left=False, labelleft=False, bottom=False, labelbottom=False)
+    ax4.tick_params(left=False, labelleft=False)
+    
+    ax1.set_xticks([-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5])
+    ax2.set_xticks([-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2])
+    
+    ax1.set_yticks([0.2, 0.4, 0.6, 0.8, 1.0])
+    ax3.set_yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    ax1.set_yticks([0.2, 0.4, 0.6, 0.8, 1.0])
+    
+    hands1, labs1 = ax1.get_legend_handles_labels()
+    hands2, labs2 = ax2.get_legend_handles_labels()
+    hands3, labs3 = ax3.get_legend_handles_labels()
+    hands4, labs4 = ax4.get_legend_handles_labels()
+    
+    ax1.set_title(titles[0], fontsize=10)
+    ax2.set_title(titles[1], fontsize=10)
+    
+    # ax2.legend(hands2[:2], labs2[:2], facecolor='whitesmoke', framealpha=1, loc=3)
+    
+    ax1.text(0.6, 0.7, 'inside-out purity', c='m', rotation=0)
+    ax1.text(0.2, 0.14, 'inside-out completeness', c='indigo', rotation=-19)
+    ax2.text(0.6, 0.77, 'outside-in purity', c='r', rotation=12)
+    ax2.text(0.28, 0.01, 'outside-in completeness', c='darkred', rotation=-38)
+    ax2.text(-1.3, 0.62, 'SF purity', c='k', rotation=-3)
+    ax2.text(-1.95, 0.65, 'SF completeness', c='grey', rotation=30)
+    ax3.text(-1.5, 0.08, '+ambiguous purity', c='gold', rotation=17)
+    ax3.text(-1.5, 0.36, '+ambiguous completeness', c='darkorange', rotation=-36)
     
     plt.tight_layout()
     
@@ -1743,7 +1875,7 @@ def plot_scatter_with_hists(xs, ys, colors, labels, markers, alphas,
     
     return
 
-def plot_simple_dumb(xs, ys, label='', save=False,
+def plot_simple_dumb(xs, ys, color, label='', save=False,
                      xlabel=None, ylabel=None, title=None, outfile=None,
                      xmin=None, xmax=None, ymin=None, ymax=None, loc=0,
                      figsizewidth=9.5, figsizeheight=7, scale='linear') :
@@ -1757,7 +1889,17 @@ def plot_simple_dumb(xs, ys, label='', save=False,
     # xx = np.linspace(xmin, xmax, 1000)
     # ax.plot(xx, xx, 'r-', label='equality')
     # ax.plot(xx, xx+0.18, 'b-', label='y = x + 0.18')
-    ax.plot(xs, ys, 'ko', label=label) #alpha=0.2)
+    # ax.plot(xs, ys, 'ko', label=label) #alpha=0.2)
+    
+    from matplotlib.collections import LineCollection
+    from matplotlib.colors import BoundaryNorm
+    cmap = mcol.LinearSegmentedColormap.from_list('BlackRed', ['k', 'r'])
+    norm = BoundaryNorm([0, 0.5, 1], cmap.N)
+    xy = np.array([xs, ys]).T.reshape(-1, 1, 2)
+    segments = np.hstack([xy[:-1], xy[1:]])
+    lc = LineCollection(segments, cmap=cmap, norm=norm, linewidth=3)
+    lc.set_array(color)
+    ax.add_collection(lc)
     
     ax.set_xscale(scale)
     ax.set_yscale(scale)
@@ -1995,7 +2137,7 @@ def double_simple_with_times(xs1, ys1, colors1, styles1, alphas1, labels1,
         _, _, ymin, _ = plt.axis()
     if (ymax == None) :
         _, _, _, ymax = plt.axis()
-    cmap = mcol.LinearSegmentedColormap.from_list('BlRd',['b','r'])
+    cmap = mcol.LinearSegmentedColormap.from_list('BlRd', ['b', 'r'])
     ax2.imshow([[0.,1.], [0.,1.]], extent=(tonset, tterm, ymin, ymax),
                cmap=cmap, interpolation='bicubic', alpha=0.15, aspect='auto')
     
@@ -2050,7 +2192,7 @@ def plot_simple_multi_with_times(xs, ys, labels, colors, markers, styles,
         _, _, ymin, _ = plt.axis()
     if (ymax == None) :
         _, _, _, ymax = plt.axis()
-    cmap = mcol.LinearSegmentedColormap.from_list('BlRd',['b','r'])
+    cmap = mcol.LinearSegmentedColormap.from_list('BlRd', ['b', 'r'])
     ax.imshow([[0.,1.], [0.,1.]], extent=(tonset, ttermination, ymin, ymax),
               cmap=cmap, interpolation='bicubic', alpha=0.15, aspect='auto')
     
