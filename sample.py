@@ -228,6 +228,7 @@ def resave_as_hdf5(simName='TNG50-1', snapNum=99) :
             add_dataset(hf, np.full((8260, 100, 3), np.nan), 'UVK')
             add_dataset(hf, np.full((8260, 100), np.nan), 'SFH')
             add_dataset(hf, np.full((8260, 100), np.nan), 'SFMS')
+            add_dataset(hf, np.full((8260, 100), np.nan), 'below_SFMS')
             add_dataset(hf, np.full((8260, 100), np.nan), 'lo_SFH')
             add_dataset(hf, np.full((8260, 100), np.nan), 'hi_SFH')
             add_dataset(hf, np.full(8260, False), 'quenched')

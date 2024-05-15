@@ -21,7 +21,7 @@ def compute_SFMS_percentile_limits(simName='TNG50-1', snapNum=99) :
         logM = hf['logM'][:]
         SFHs = hf['SFH'][:]
         exclude = hf['exclude'][:] # 103 galaxies should be excluded, see sfhs.py
-        subIDfinals = hf['SubhaloID'][:]
+        # subIDfinals = hf['SubhaloID'][:]
     
     # create the helper file
     if not exists(helper_file) :
@@ -136,7 +136,7 @@ def determine_SFMS(simName='TNG50-1', snapNum=99) :
         his = helper['Snapshot_{}/his'.format(snap)][:]
         
         # check if each galaxy is on the SFMS at the given snapshot
-        SFMS_at_snap = []
+        SFMS_at_snap, below_SFMS_at_snap = [], []
         for mass, SFR in zip(masses, SFRs) :
             
             # if the mass and SFR are intact find the mass bin where the galaxy
@@ -146,12 +146,15 @@ def determine_SFMS(simName='TNG50-1', snapNum=99) :
                 # determine if the galaxy is on the SFMS
                 SFMS_quality = (SFR >= los[idx]) & (SFR <= his[idx])
                 SFMS_at_snap.append(SFMS_quality)
+                below_SFMS_at_snap.append(SFR < los[idx])
             else : # if the mass isn't intact then the galaxy isn't on the SFMS
                 SFMS_at_snap.append(False)
+                below_SFMS_at_snap.append(False)
         
         # place the values at the given snapshot into the array for all snapshots
         with h5py.File(sample_file, 'a') as hf :
             hf['SFMS'][:, snap] = np.array(SFMS_at_snap).astype(bool)
+            hf['below_SFMS'][:, snap] = np.array(below_SFMS_at_snap).astype(bool)
     
     helper.close()
     

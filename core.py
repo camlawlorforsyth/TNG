@@ -102,7 +102,7 @@ def get_ages_and_scalefactors() :
     
     return scalefactor, age
 
-def get_late_data(include_mass=False) :
+def get_late_data(basic=True) :
     
     # get the morphological metrics and the quenching episode progresses
     data = Table.read('TNG50-1/morphological_metrics_-10.5_+-1.fits')
@@ -115,6 +115,7 @@ def get_late_data(include_mass=False) :
     # get parameters of interest
     late_quenched = table['quenched_status'].value
     late_sf = table['sf_status'].value
+    late_below = table['below_sfms_status'].value
     late_mech = table['mechanism'].value
     late_logM = table['logM'].value
     
@@ -127,29 +128,34 @@ def get_late_data(include_mass=False) :
             (late_data[:, 2] >= 0.0) & (late_data[:, 3] >= 0.0))
     late_quenched = late_quenched[good]
     late_sf = late_sf[good]
+    late_below = late_below[good]
     late_data = late_data[good]
     late_mech = late_mech[good]
     late_logM = late_logM[good]
     
     late_quenched_mech = late_mech[late_mech > 0]
     late_sf_mech = late_mech[late_mech == 0]
+    late_below_mech = late_mech[late_mech == -1]
     
     late_quenched_data = late_data[late_mech > 0]
     late_sf_data = late_data[late_mech == 0]
+    late_below_data = late_data[late_mech == -1]
     late_io_data = late_data[late_mech == 1]
     late_oi_data = late_data[late_mech == 3]
     late_am_data = late_data[late_mech == 5]
     
     late_quenched_logM = late_logM[late_mech > 0]
     late_sf_logM = late_logM[late_mech == 0]
+    late_below_logM = late_logM[late_mech == -1]
     
-    if include_mass :
-        return (late_quenched_mech, late_sf_mech, late_quenched_data,
-                late_sf_data, late_io_data, late_oi_data, late_am_data,
-                late_quenched_logM, late_sf_logM)
-    else :
+    if basic :
         return (late_quenched_mech, late_sf_mech, late_quenched_data,
                 late_sf_data, late_io_data, late_oi_data, late_am_data)
+    else :
+        return (late_quenched_mech, late_sf_mech, late_quenched_data,
+                late_sf_data, late_io_data, late_oi_data, late_am_data,
+                late_quenched_logM, late_sf_logM, late_below_mech,
+                late_below_data, late_below_logM)
 
 def get_mpb_values(subID, simName='TNG50-1', snapNum=99, pad=True) :
     
