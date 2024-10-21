@@ -8,6 +8,7 @@ from matplotlib import cm
 import matplotlib.colors as mcol
 from matplotlib.colors import LogNorm, Normalize
 import matplotlib.gridspec as gridspec
+from matplotlib.legend_handler import HandlerTuple
 from matplotlib.patches import Circle
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from scipy.ndimage import gaussian_filter
@@ -303,16 +304,62 @@ def histogram_multi(data, hlabel, colors, styles, labels, bins, weights,
         ax.hist(data[i], color=colors[i], linestyle=styles[i], label=labels[i],
                 histtype=histtype, bins=bins[i], weights=weights[i])
     
-    ax.set_title(title, fontsize=18)
-    ax.set_xlabel(hlabel, fontsize=15)
+    ax.set_title(title, fontsize=10)
+    ax.set_xlabel(hlabel, fontsize=10)
     # ax.set_ylabel('Fractional Frequency', fontsize=15)
     
-    # ax.set_xscale('log')
+    # ax.set_yscale('log')
     
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(ymin, ymax)
     ax.legend(loc=loc, facecolor='whitesmoke', framealpha=1,
-              fontsize=15)
+              fontsize=10)
+    
+    plt.tight_layout()
+    
+    if save :
+        plt.savefig(outfile, bbox_inches='tight')
+        plt.close()
+    else :
+        plt.show()
+    
+    return
+
+def histogram_multi_double(data1, data2, weights1, weights2, styles1, styles2,
+                           labels1, labels2, colors, bins, xmin=None, xmax=None,
+                           ymin=None, ymax=None, figsizewidth=9.5, figsizeheight=7,
+                           loc=0, histtype='step', save=False, outfile=None) :
+    
+    global currentFig
+    fig = plt.figure(currentFig, figsize=(figsizewidth, figsizeheight))
+    currentFig += 1
+    plt.clf()
+    
+    gs = fig.add_gridspec(2, 1, hspace=0)
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax2 = fig.add_subplot(gs[1, 0], sharex=ax1)
+    
+    for i in range(len(data1)) :
+        ax1.hist(data1[i], color=colors[i], linestyle=styles1[i], label=labels1[i],
+                 histtype=histtype, bins=bins[i], weights=weights1[i])
+    
+    for i in range(len(data2)) :
+        ax2.hist(data2[i], color=colors[i], linestyle=styles2[i], label=labels2[i],
+                 histtype=histtype, bins=bins[i], weights=weights2[i])
+    
+    ax1.tick_params(bottom=False, labelbottom=False)
+    # ax1.set_yscale('log')
+    # ax2.set_yscale('log')
+    
+    ax2.set_xlabel(r'$\Delta t/\Delta t_{\rm quench}$', fontsize=10)
+    
+    ax1.set_xlim(xmin, xmax)
+    
+    ax1.set_ylim(ymin, ymax)
+    ax2.set_ylim(ymin, ymax)
+    
+    ax1.legend(loc=loc, facecolor='whitesmoke', framealpha=1, fontsize=10)
+    ax2.legend(loc=loc, facecolor='whitesmoke', framealpha=1, fontsize=10)
     
     plt.tight_layout()
     
@@ -327,7 +374,7 @@ def histogram_multi(data, hlabel, colors, styles, labels, bins, weights,
 def histogram_2d(xhist, yhist, label=None, #xscatter, yscatter, xs, ys, fitx, fity, labels,
                  # styles,
                  bad='white', bins=[20,20], cmap=cm.Blues, title=None,
-                 norm=LogNorm(), outfile=None, xlabel=None, ylabel=None,
+                 norm=LogNorm(vmin=1e2, vmax=1e4), outfile=None, xlabel=None, ylabel=None,
                  xmin=None, xmax=None, ymin=None, ymax=None, save=False,
                  figsizewidth=9.5, figsizeheight=7, loc=0) :
     
@@ -340,8 +387,14 @@ def histogram_2d(xhist, yhist, label=None, #xscatter, yscatter, xs, ys, fitx, fi
     cmap = copy.copy(cmap)
     cmap.set_bad(bad, 1)
     
-    ax.hist2d(xhist, yhist, bins=bins, #range=[[xmin, xmax], [ymin, ymax]],
-               cmap=cmap, norm=norm, alpha=0.7, label=label)
+    frame = ax.hist2d(xhist, yhist, bins=bins, #range=[[xmin, xmax], [ymin, ymax]],
+               cmap=cmap, norm=norm,
+               alpha=1, label=label)
+    cbar = plt.colorbar(frame[3], ax=ax)
+    cbar.set_label('', fontsize=10)
+    
+    ax.plot(np.linspace(xmin, xmax, 1000), np.linspace(xmin, xmax, 1000), 'k-',
+            label='equality')
     
     # for i in range(len(ys)) :
     #     ax.plot(xs[i], ys[i], styles[i], color='k')
@@ -354,13 +407,13 @@ def histogram_2d(xhist, yhist, label=None, #xscatter, yscatter, xs, ys, fitx, fi
     # ax.set_xscale('log')
     # ax.set_yscale('log')
     
-    ax.set_title(title, fontsize=18)
-    ax.set_xlabel(xlabel, fontsize=15)
-    ax.set_ylabel(ylabel, fontsize=15)
+    ax.set_title(title, fontsize=10)
+    ax.set_xlabel(xlabel, fontsize=10)
+    ax.set_ylabel(ylabel, fontsize=10)
     
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(ymin, ymax)
-    # ax.legend(loc=loc, facecolor='whitesmoke', framealpha=1, fontsize=15)
+    ax.legend(loc=loc, facecolor='whitesmoke', framealpha=1, fontsize=10)
     
     plt.tight_layout()
     
@@ -1154,10 +1207,10 @@ def plot_scatter(xs, ys, color, label, marker, cbar_label='', size=30,
                        norm=norm, s=size, alpha=0.3)
     # cbar = plt.colorbar(frame)
     # cbar.set_label(cbar_label, fontsize=15)
-    ax.plot(-5, -5, 'o', c=cmap(327), alpha=0.3, label='cluster')
-    ax.plot(-5, -5, 'o', c=cmap(170), alpha=0.3, label='high mass group')
-    ax.plot(-5, -5, 'o', c=cmap(100), alpha=0.3, label='low mass group')
-    ax.plot(-5, -5, 'o', c=cmap(0), alpha=0.3, label='field')
+    # ax.plot(-5, -5, 'o', c=cmap(327), alpha=0.3, label='cluster')
+    # ax.plot(-5, -5, 'o', c=cmap(170), alpha=0.3, label='high mass group')
+    # ax.plot(-5, -5, 'o', c=cmap(100), alpha=0.3, label='low mass group')
+    # ax.plot(-5, -5, 'o', c=cmap(0), alpha=0.3, label='field')
     
     ax.set_xscale(scale)
     ax.set_yscale(scale)
@@ -1168,7 +1221,7 @@ def plot_scatter(xs, ys, color, label, marker, cbar_label='', size=30,
     
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(ymin, ymax)
-    ax.legend(facecolor='whitesmoke', framealpha=1, fontsize=15, loc=loc)
+    # ax.legend(facecolor='whitesmoke', framealpha=1, fontsize=15, loc=loc)
     
     plt.tight_layout()
     
@@ -1198,7 +1251,7 @@ def plot_scatter_dumb(xs, ys, color, label, marker, cbar_label='', size=30,
     if (xmin is None) and (xmax is None) :
         xmin, xmax = np.min(xs), np.max(xs)
     xx = np.linspace(xmin, xmax, 1000)
-    ax.plot(xx, xx, 'k-', label='equality')
+    # ax.plot(xx, xx, 'k-', label='equality')
     frame = ax.scatter(xs, ys, c=color, marker=marker, label=label, cmap=cmap,
                         # edgecolors='grey', norm=norm,
                        vmin=vmin, vmax=vmax, s=size, alpha=1, zorder=3)
@@ -1442,11 +1495,11 @@ def double_scatter_with_line(xs1, ys1, colors1, markers1, alphas1, x1, y1,
     ax1 = fig.add_subplot(gs[0, 0])
     ax2 = fig.add_subplot(gs[0, 1], sharey=ax1)
     
-    # ax2.set_xticks([-5, 0, 5])
-    # ax2.yaxis.set_label_position('right')
-    # ax2.yaxis.tick_right()
-    ax2.tick_params(left=False, labelleft=False)
-    ax1.set_xticks([2, 4, 6, 8, 10, 12])
+    ax2.set_xticks([-5, 0, 5])
+    ax2.yaxis.set_label_position('right')
+    ax2.yaxis.tick_right()
+    # ax2.tick_params(left=False, labelleft=False)
+    # ax1.set_xticks([2, 4, 6, 8, 10, 12])
     
     if (s1 and s2) :
         legendSize = [50]
@@ -1480,11 +1533,258 @@ def double_scatter_with_line(xs1, ys1, colors1, markers1, alphas1, x1, y1,
         ax1.set_title(titles[0], fontsize=10)
         ax2.set_title(titles[1], fontsize=10)
     
-    legend = ax1.legend(facecolor='whitesmoke', framealpha=1, loc=loc)
+    legend = ax1.legend(facecolor='whitesmoke', framealpha=1, loc=loc, fontsize=9)
     
     # adapted from https://stackoverflow.com/questions/24706125
     for i in range(len(xs1)) :
         legend.legendHandles[i]._sizes = legendSize
+    
+    plt.tight_layout()
+    
+    if save :
+        plt.savefig(outfile, bbox_inches='tight')
+        plt.close()
+    else :
+        plt.show()
+    
+    return
+
+def double_scatter_with_line_other(xs1, ys1, colors1, markers1, alphas1, x1, y1,
+                                   xs2, ys2, colors2, markers2, alphas2, x2, y2, labels,
+                                   s1=None, s2=None, titles=None, xlabel1=None,
+                                   ylabel1=None, xlabel2=None, ylabel2=None,
+                                   xmin1=None, xmax1=None, xmin2=None, xmax2=None,
+                                   ymin=None, ymax=None, figsizewidth=9.5,
+                                   figsizeheight=7, loc=0, save=False, outfile=None) :
+    
+    global currentFig
+    fig = plt.figure(currentFig, figsize=(figsizewidth, figsizeheight))
+    currentFig += 1
+    plt.clf()
+    
+    gs = fig.add_gridspec(1, 2, wspace=0)
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax2 = fig.add_subplot(gs[0, 1], sharey=ax1)
+    
+    ax2.set_xticks([1, 1.5, 2, 2.5, 3, 3.5, 4])
+    ax2.yaxis.set_label_position('right')
+    ax2.yaxis.tick_right()
+    # ax2.tick_params(left=False, labelleft=False)
+    ax1.set_xticks([3.4, 3.5, 3.6])
+    
+    if (s1 and s2) :
+        legendSize = [50]
+    else :
+        s1, s2, legendSize = [10]*len(xs1), [10]*len(xs2), [10]
+    
+    for i in range(len(xs1)) :
+        ax1.scatter(xs1[i], ys1[i], c=colors1[i], marker=markers1[i],
+                    label=labels[i], alpha=alphas1[i], s=s1[i])
+    
+    ax1.plot(x1, y1, 'k-', lw=1)
+    
+    for i in range(len(xs2)) :
+        ax2.scatter(xs2[i], ys2[i], c=colors2[i], marker=markers2[i],
+                    alpha=alphas2[i], s=s2[i])
+    
+    ax2.plot(x2, y2, 'k-', lw=1)
+    
+    ax1.set_xlabel(xlabel1)
+    ax1.set_ylabel(ylabel1)
+    
+    ax2.set_xlabel(xlabel2)
+    ax2.set_ylabel(ylabel2)
+    
+    ax1.set_xlim(xmin1, xmax1)
+    ax2.set_xlim(xmin2, xmax2)
+    
+    ax1.set_ylim(ymin, ymax)
+    
+    if titles :
+        ax1.set_title(titles[0], fontsize=10)
+        ax2.set_title(titles[1], fontsize=10)
+    
+    legend = ax1.legend(facecolor='whitesmoke', framealpha=1, loc=loc, fontsize=9)
+    
+    # adapted from https://stackoverflow.com/questions/24706125
+    for i in range(len(xs1)) :
+        legend.legendHandles[i]._sizes = legendSize
+    
+    plt.tight_layout()
+    
+    if save :
+        plt.savefig(outfile, bbox_inches='tight')
+        plt.close()
+    else :
+        plt.show()
+    
+    return
+
+def double_grid_plot(xs, ys1, los1, his1, colors1, labels1, ys2, los2, his2,
+                     colors2, labels2, styles, zorders=None, xlabel=None,
+                     ylabel=None, titles=None, figsizewidth=9.5, figsizeheight=7,
+                     loc=0, save=False, outfile=None) :
+    
+    global currentFig
+    fig = plt.figure(currentFig, figsize=(figsizewidth, figsizeheight))
+    currentFig += 1
+    plt.clf()
+    
+    gs = fig.add_gridspec(1, 2, hspace=0, wspace=0)
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax2 = fig.add_subplot(gs[0, 1], sharey=ax1)
+    
+    # adapted from https://stackoverflow.com/questions/70908289
+    cm1_1 = mcol.LinearSegmentedColormap.from_list('custom1_1', [colors1[2], colors1[4]])
+    poly1_1 = ax1.fill_between(xs, ys1[2], ys1[4], lw=0, color='none')
+    verts1_1 = np.vstack([p.vertices for p in poly1_1.get_paths()])
+    ymini, ymaxi = verts1_1[:, 1].min(), verts1_1[:, 1].max()
+    interp1_1 = np.array([np.interp(np.linspace(ymini, ymaxi, 1000), [y1i, y2i], [0, 1])
+                          for y1i, y2i in zip(ys1[2], ys1[4])]).T
+    grad1_1 = ax1.imshow(interp1_1, cmap=cm1_1, aspect='auto', origin='lower',
+                         extent=[xs.min(), xs.max(), ymini, ymaxi], alpha=0.1)
+    grad1_1.set_clip_path(poly1_1.get_paths()[0], transform=ax1.transData)
+    
+    cm1_2 = mcol.LinearSegmentedColormap.from_list('custom1_2', [colors1[5], colors1[3]])
+    poly1_2 = ax1.fill_between(xs, ys1[5], ys1[3], lw=0, color='none')
+    verts1_2 = np.vstack([p.vertices for p in poly1_2.get_paths()])
+    ymini, ymaxi = verts1_2[:, 1].min(), verts1_2[:, 1].max()
+    interp1_2 = np.array([np.interp(np.linspace(ymini, ymaxi, 1000), [y1i, y2i], [0, 1])
+                          for y1i, y2i in zip(ys1[5], ys1[3])]).T
+    grad1_2 = ax1.imshow(interp1_2, cmap=cm1_2, aspect='auto', origin='lower',
+                          extent=[xs.min(), xs.max(), ymini, ymaxi], alpha=0.1)
+    grad1_2.set_clip_path(poly1_2.get_paths()[0], transform=ax1.transData)
+    ax1.axvline(0, c='k', ls=':', alpha=0.3)
+    for i in range(6) :
+        ax1.fill_between(xs, los1[i], his1[i], color=colors1[i], alpha=0.2)
+        ax1.plot(xs, ys1[i], marker='', linestyle=styles[i], color=colors1[i],
+                  label=labels1[i], zorder=zorders[i])
+    
+    cm2_1 = mcol.LinearSegmentedColormap.from_list('custom2_1', [colors2[2], colors2[4]])
+    poly2_1 = ax2.fill_between(xs, ys2[2], ys2[4], lw=0, color='none')
+    verts2_1 = np.vstack([p.vertices for p in poly2_1.get_paths()])
+    ymini, ymaxi = verts2_1[:, 1].min(), verts2_1[:, 1].max()
+    interp2_1 = np.array([np.interp(np.linspace(ymini, ymaxi, 1000), [y1i, y2i], [0, 1])
+                          for y1i, y2i in zip(ys2[2], ys2[4])]).T
+    grad2_1 = ax2.imshow(interp2_1, cmap=cm2_1, aspect='auto', origin='lower',
+                         extent=[xs.min(), xs.max(), ymini, ymaxi], alpha=0.1)
+    grad2_1.set_clip_path(poly2_1.get_paths()[0], transform=ax2.transData)
+    
+    cm2_2 = mcol.LinearSegmentedColormap.from_list('custom2_2', [colors2[5], colors2[3]])
+    poly2_2 = ax2.fill_between(xs, ys2[5], ys2[3], lw=0, color='none')
+    verts2_2 = np.vstack([p.vertices for p in poly2_2.get_paths()])
+    ymini, ymaxi = verts2_2[:, 1].min(), verts2_2[:, 1].max()
+    interp2_2 = np.array([np.interp(np.linspace(ymini, ymaxi, 1000), [y1i, y2i], [0, 1])
+                          for y1i, y2i in zip(ys2[5], ys2[3])]).T
+    grad2_2 = ax2.imshow(interp2_2, cmap=cm2_2, aspect='auto', origin='lower',
+                         extent=[xs.min(), xs.max(), ymini, ymaxi], alpha=0.1)
+    grad2_2.set_clip_path(poly2_2.get_paths()[0], transform=ax2.transData)
+    ax2.axvline(0, c='k', ls=':', alpha=0.3)
+    for i in range(6) :
+        ax2.fill_between(xs, los2[i], his2[i], color=colors2[i], alpha=0.2)
+        ax2.plot(xs, ys2[i], marker='', linestyle=styles[i], color=colors2[i],
+                 label=labels2[i], zorder=zorders[i])
+    
+    ax1.set_xlabel(xlabel)
+    ax2.set_xlabel(xlabel)
+    ax1.set_ylabel(ylabel)
+    
+    ax1.set_xlim(-2, 2)
+    ax2.set_xlim(-2, 2)
+    ax1.set_ylim(-0.15, 1)
+    
+    ax2.tick_params(left=False, labelleft=False)
+    
+    ax1.set_xticks([-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5])
+    ax2.set_xticks([-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2])
+    ax1.set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1])
+    
+    ax1.set_title(titles[0], fontsize=10)
+    ax2.set_title(titles[1], fontsize=10)
+    
+    # ax1.text(1.1, 0.47, 'SF purity', c='k', rotation=-3)
+    # ax1.text(0.6, 0.66, 'inside-out purity', c='m', rotation=-4)
+    # ax1.text(0.67, 0.29, 'inside-out compl.', c='indigo', rotation=-19)
+    # ax1.text(0.48, 0.86, '+ambiguous purity', c='gold', rotation=0)
+    # ax1.text(0.03, 0.1, '+ambiguous completeness', c='darkorange', rotation=-19)
+    
+    # ax2.text(0.4, 0.87, 'SF completeness', c='grey', rotation=7)
+    # ax2.text(-1.75, 0.18, 'outside-in purity', c='r', rotation=31)
+    # ax2.text(0.82, 0.14, 'outside-in compl.', c='darkred', rotation=-42)
+    
+    # ax2.text(-1.5, 0.08, '+ambiguous purity', c='gold', rotation=17)
+    # ax2.text(-1.5, 0.36, '+ambiguous completeness', c='darkorange', rotation=-36)
+    
+    hands1, labs1 = ax1.get_legend_handles_labels()
+    hands2, labs2 = ax2.get_legend_handles_labels()
+    
+    unique_labs1 = list(np.unique(labs1))
+    combined_hands1 = [tuple([h for h, l in zip(hands1, labs1) if l == label])
+                       for label in unique_labs1]
+    ax1.legend(handles=combined_hands1, labels=unique_labs1,
+               handler_map={tuple: HandlerTuple(ndivide=None, pad=0)},
+               facecolor='whitesmoke', framealpha=1, loc=4)
+    
+    unique_labs2 = list(np.unique(labs2))
+    combined_hands2 = [tuple([h for h, l in zip(hands2, labs2) if l == label])
+                       for label in unique_labs2]
+    ax2.legend(handles=combined_hands2, labels=unique_labs2,
+               handler_map={tuple: HandlerTuple(ndivide=None, pad=0)},
+               facecolor='whitesmoke', framealpha=1, loc=3)
+    
+    plt.tight_layout()
+    
+    if save :
+        plt.savefig(outfile, bbox_inches='tight')
+        plt.close()
+    else :
+        plt.show()
+    
+    return
+
+def double_scatter(xs1, ys1, xs2, ys2, colors,
+                   markers, alphas, labels, titles, xlabel=None,
+                   ylabel=None, xmin=None, xmax=None, ymin=None,
+                   ymax=None, figsizewidth=9.5, figsizeheight=7,
+                   loc=0, save=False, outfile=None) :
+    
+    global currentFig
+    fig = plt.figure(currentFig, figsize=(figsizewidth, figsizeheight))
+    currentFig += 1
+    plt.clf()
+    
+    gs = fig.add_gridspec(1, 2, wspace=0)
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax2 = fig.add_subplot(gs[0, 1], sharey=ax1)
+    
+    for i in range(len(xs1)) :
+        ax1.scatter(xs1[i], ys1[i], c=colors[i], marker=markers[i],
+                    alpha=alphas[i], s=10)
+    
+    for i in range(len(xs2)) :
+        ax2.scatter(xs2[i], ys2[i], c=colors[i], marker=markers[i],
+                    alpha=alphas[i], s=10, label=labels[i])
+    
+    ax1.set_xlabel(xlabel)
+    ax2.set_xlabel(xlabel)
+    ax1.set_ylabel(ylabel)
+    
+    ax1.set_xlim(xmin, xmax)
+    ax2.set_xlim(xmin, xmax)
+    ax1.set_ylim(ymin, ymax)
+    
+    # ax1.tick_params(bottom=False, labelbottom=False)
+    ax2.tick_params(left=False, labelleft=False)
+    
+    ax1.set_xticks([0, 0.2, 0.4, 0.6, 0.8])
+    ax2.set_xticks([0, 0.2, 0.4, 0.6, 0.8, 1])
+    
+    # ax1.set_yticks([0, 0.2, 0.4, 0.6, 0.8, 1])
+    
+    ax1.set_title(titles[0], fontsize=10)
+    ax2.set_title(titles[1], fontsize=10)
+    
+    ax2.legend(facecolor='whitesmoke', framealpha=1, loc=loc)
     
     plt.tight_layout()
     
@@ -1672,7 +1972,6 @@ def quad_grid_plot(xs, ys1, los1, his1, colors1, labels1, ys2, los2, his2,
     
     ax1.set_yticks([0.2, 0.4, 0.6, 0.8, 1.0])
     ax3.set_yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
-    ax1.set_yticks([0.2, 0.4, 0.6, 0.8, 1.0])
     
     hands1, labs1 = ax1.get_legend_handles_labels()
     hands2, labs2 = ax2.get_legend_handles_labels()
@@ -1969,8 +2268,15 @@ def plot_simple_multi(xs, ys, labels, colors, markers, styles, alphas,
     ax = fig.add_subplot(111)
     # lws = [2, 4]
     for i in range(len(xs)) :
+        if i == 1 :
+            zorder = 3
+            mfc = 'none'
+        else :
+            zorder = None
+            mfc = None
         ax.plot(xs[i], ys[i], marker=markers[i], linestyle=styles[i],
-                color=colors[i], label=labels[i], alpha=alphas[i])
+                color=colors[i], label=labels[i], alpha=alphas[i],
+                zorder=zorder, mfc=mfc)
     
     ax.set_xscale(scale)
     ax.set_yscale(scale)
@@ -2291,6 +2597,73 @@ def test_contour(XX, YY, hist, X_cent, Y_cent, contours, levels,
     
     ax.set_xlim(xmin, xmax)
     ax.set_ylim(ymin, ymax)
+    
+    plt.tight_layout()
+    
+    if save :
+        plt.savefig(outfile, bbox_inches='tight')
+        plt.close()
+    else :
+        plt.show()
+    
+    return
+
+def plot_steps_multi(x1, x2, y1, y2, y3, y4, y5, y6, xlabel=None, ylabel=None,
+                     xmin=None, xmax=None, ymin=None, ymax=None, loc=0,
+                     figsizewidth=9.5, figsizeheight=7, outfile=None, save=False) :
+    
+    global currentFig
+    fig = plt.figure(currentFig, figsize=(figsizewidth, figsizeheight))
+    currentFig += 1
+    plt.clf()
+    ax = fig.add_subplot(111)
+    
+    ax.fill_between(x1, y1, y2, step='post', color='m', alpha=0.1)
+    ax.stairs(y3, x1, linestyle='-', baseline=None, color='m', label='inside-out')
+    ax.fill_between(x2[:-1], y4, y5, step='post', color='r', alpha=0.1)
+    ax.stairs(y6, x2, linestyle='-', baseline=None, color='r', label='outside-in')
+    
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    
+    ax.set_xlim(xmin, xmax)
+    ax.set_ylim(ymin, ymax)
+    
+    ax.legend(facecolor='whitesmoke', framealpha=1, loc=loc)
+    
+    plt.tight_layout()
+    
+    if save :
+        plt.savefig(outfile, bbox_inches='tight')
+        plt.close()
+    else :
+        plt.show()
+    
+    return
+
+def plot_filledbetween_multi(x1, x2, y1, y2, y3, y4, y5, y6, xlabel=None,
+                             ylabel=None, xmin=None, xmax=None, ymin=None,
+                             ymax=None, loc=0, figsizewidth=9.5,
+                             figsizeheight=7, outfile=None, save=False) :
+    
+    global currentFig
+    fig = plt.figure(currentFig, figsize=(figsizewidth, figsizeheight))
+    currentFig += 1
+    plt.clf()
+    ax = fig.add_subplot(111)
+    
+    ax.fill_between(x1, y1, y2, color='m', alpha=0.1)
+    ax.plot(x1, y3, linestyle='-', color='m', label='inside-out')
+    ax.fill_between(x2, y4, y5, color='r', alpha=0.1)
+    ax.plot(x2, y6, linestyle='-', color='r', label='outside-in')
+    
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    
+    ax.set_xlim(xmin, xmax)
+    ax.set_ylim(ymin, ymax)
+    
+    ax.legend(facecolor='whitesmoke', framealpha=1, loc=loc)
     
     plt.tight_layout()
     

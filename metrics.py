@@ -12,7 +12,7 @@ from scipy.ndimage import gaussian_filter1d, gaussian_filter
 from scipy.optimize import curve_fit
 
 from core import (add_dataset, get_late_data, get_particle_positions,
-                  get_particles, get_sf_particles, vertex)
+                  get_sf_particles, vertex)
 import plotting as plt
 
 def calculate_required_morphological_metrics(delta_t=100*u.Myr, version='2D',
@@ -20,13 +20,13 @@ def calculate_required_morphological_metrics(delta_t=100*u.Myr, version='2D',
     
     # define the input and output files
     infile = 'TNG50-1/TNG50-1_99_sample(t).hdf5'
-    profiles_file = 'TNG50-1/TNG50-1_99_massive_radial_profiles(t).hdf5'
-    C_SF_outfile = 'TNG50-1/TNG50-1_99_massive_C_SF(t).hdf5'
-    R_SF_outfile = 'TNG50-1/TNG50-1_99_massive_R_SF(t).hdf5'
-    Rinner_outfile = 'TNG50-1/TNG50-1_99_massive_Rinner(t)_revised_{}_+{}.hdf5'.format(
-        threshold, slope)
-    Router_outfile = 'TNG50-1/TNG50-1_99_massive_Router(t)_revised_{}_-{}.hdf5'.format(
-        threshold, slope)
+    profiles_file = 'TNG50-1/TNG50-1_99_massive_radial_profiles(t)_{}.hdf5'.format(version)
+    C_SF_outfile = 'TNG50-1/TNG50-1_99_massive_C_SF(t)_{}_new.hdf5'.format(version)
+    R_SF_outfile = 'TNG50-1/TNG50-1_99_massive_R_SF(t)_{}_new.hdf5'.format(version)
+    Rinner_outfile = 'TNG50-1/TNG50-1_99_massive_Rinner(t)_revised_{}_+{}_{}_new.hdf5'.format(
+        threshold, slope, version)
+    Router_outfile = 'TNG50-1/TNG50-1_99_massive_Router(t)_revised_{}_-{}_{}_new.hdf5'.format(
+        threshold, slope, version)
     
     # get relevant information for the general sample
     with h5py.File(infile, 'r') as hf :
@@ -135,11 +135,11 @@ def calculate_required_morphological_metrics(delta_t=100*u.Myr, version='2D',
     return
 
 def calculate_required_radial_profiles(simName='TNG50-1', snapNum=99,
-                                       delta_t=100*u.Myr) :
+                                       delta_t=100*u.Myr, version='2D') :
     
     # define the input and output files
     infile = 'TNG50-1/TNG50-1_99_sample(t).hdf5'
-    outfile = 'TNG50-1/TNG50-1_99_massive_radial_profiles(t).hdf5'
+    outfile = 'TNG50-1/TNG50-1_99_massive_radial_profiles(t)_{}.hdf5'.format(version)
     
     # get relevant information for the general sample
     with h5py.File(infile, 'r') as hf :
@@ -177,6 +177,8 @@ def calculate_required_radial_profiles(simName='TNG50-1', snapNum=99,
         with h5py.File(outfile, 'w') as hf :
             add_dataset(hf, edges, 'edges')
             add_dataset(hf, np.array(mids), 'midpoints')
+            add_dataset(hf, np.full((1666, 100, 20), np.nan), 'SFR_profiles')
+            add_dataset(hf, np.full((1666, 100, 20), np.nan), 'mass_profiles')
             add_dataset(hf, np.full((1666, 100, 20), np.nan), 'sSFR_profiles')
     
     # read in the required arrays
@@ -198,9 +200,11 @@ def calculate_required_radial_profiles(simName='TNG50-1', snapNum=99,
                 SFR_profile, mass_profile, _, _, _ = determine_radial_profiles(
                     'TNG50-1', 99, snap, times[snap], subIDs[row, snap],
                     Res[row, snap], centers[row, snap], edges, 20,
-                    delta_t=delta_t)
+                    delta_t=delta_t, version=version)
                 
                 with h5py.File(outfile, 'a') as hf :
+                    hf['SFR_profiles'][row, snap, :] = SFR_profile
+                    hf['mass_profiles'][row, snap, :] = mass_profile
                     hf['sSFR_profiles'][row, snap, :] = SFR_profile/mass_profile
         print('{} done'.format(row))
     
@@ -220,10 +224,8 @@ def calculate_R_SF(masses, rs, sf_masses, sf_rs) :
 
 def calculate_Rinner(bin_centers, profile, threshold=-10.5, slope=1) :
     
-    if np.all(profile == 0) :
+    if np.all(profile == 0) or np.all(np.isnan(profile)) or np.all(~np.isfinite(np.log10(profile))) :
         Rinner = -99
-    elif np.all(np.isnan(profile)) :
-        Rinner = -49
     else :
         # take the logarithm of the profile for easier manipulation
         profile = np.log10(profile)
@@ -256,10 +258,8 @@ def calculate_Rinner(bin_centers, profile, threshold=-10.5, slope=1) :
 
 def calculate_Router(bin_centers, profile, threshold=-10.5, slope=-1) :
     
-    if np.all(profile == 0) :
+    if np.all(profile == 0) or np.all(np.isnan(profile)) or np.all(~np.isfinite(np.log10(profile))) :
         Router = -99
-    elif np.all(np.isnan(profile)) :
-        Router = -49
     else :
         # take the logarithm of the profile for easier manipulation
         profile = np.log10(profile)
@@ -338,10 +338,16 @@ def compute_R_SF(masses, rs, sf_masses, sf_rs) :
             sf_tenth_radius, sf_half_radius, sf_ninetieth_radius)
 
 def determine_radial_profiles(simName, snapNum, snap, time, subID, Re, center,
-                              edges, length, delta_t=100*u.Myr) :
+                              edges, length, delta_t=100*u.Myr, version='2D') :
     
     # open the corresponding cutouts and get their particles
-    ages, masses, rs = get_particles(simName, snapNum, snap, subID, center)
+    ages, masses, dx, dy, dz = get_particle_positions(simName, snapNum, snap,
+        subID, center)
+    
+    if version == '2D' :
+        rs = np.sqrt(np.square(dx) + np.square(dy))
+    else :
+        rs = np.sqrt(np.square(dx) + np.square(dy) + np.square(dz))
     
     if (ages is not None) and (masses is not None) and (rs is not None) :
         # mask all particles to within the maximum radius (default 5Re)
@@ -639,9 +645,17 @@ def perform_masking(data, mechanism, status, episode_progress, column,
     
     return metric[epoch_mask], np.ones(len(metric[epoch_mask]))/len(metric[epoch_mask])
 
-def prepare_morphological_metrics_for_classification(threshold=-10.5, slope=1) :
+def prepare_morphological_metrics_for_classification(threshold=-10.5, slope=1,
+                                                     version='2D') :
     
-    outfile = 'TNG50-1/morphological_metrics_{}_+-{}.fits'.format(threshold, slope)
+    C_SF_infile = 'TNG50-1/TNG50-1_99_massive_C_SF(t)_{}_new.hdf5'.format(version)
+    R_SF_infile = 'TNG50-1/TNG50-1_99_massive_R_SF(t)_{}_new.hdf5'.format(version)
+    Rinner_infile = 'TNG50-1/TNG50-1_99_massive_Rinner(t)_revised_{}_+{}_{}_new.hdf5'.format(
+        threshold, slope, version)
+    Router_infile = 'TNG50-1/TNG50-1_99_massive_Router(t)_revised_{}_-{}_{}_new.hdf5'.format(
+        threshold, slope, version)
+    outfile = 'TNG50-1/morphological_metrics_{}_+-{}_{}.fits'.format(
+        threshold, slope, version)
     
     # get basic information about the sample, where some parameters are a
     # function of time
@@ -659,16 +673,12 @@ def prepare_morphological_metrics_for_classification(threshold=-10.5, slope=1) :
         quenched = hf['quenched'][:]
     
     # read in the required arrays
-    with h5py.File('TNG50-1/TNG50-1_99_massive_C_SF(t).hdf5', 'r') as hf :
+    with h5py.File(C_SF_infile, 'r') as hf :
         C_SFs = hf['C_SF'][:]
-    with h5py.File('TNG50-1/TNG50-1_99_massive_R_SF(t).hdf5', 'r') as hf :
+    with h5py.File(R_SF_infile, 'r') as hf :
         R_SFs = hf['R_SF'][:]
-    Rinner_infile = 'TNG50-1/TNG50-1_99_massive_Rinner(t)_revised_{}_+{}.hdf5'.format(
-        threshold, slope)
     with h5py.File(Rinner_infile, 'r') as hf :
         Rinners = hf['Rinner'][:]
-    Router_infile ='TNG50-1/TNG50-1_99_massive_Router(t)_revised_{}_-{}.hdf5'.format(
-        threshold, slope)
     with h5py.File(Router_infile, 'r') as hf :
         Routers = hf['Router'][:]
     
@@ -938,6 +948,11 @@ def save_CSF_and_RSF_evolution_plot() :
         xlabel=r'$C_{\rm SF}$', ylabel=ylabel, xmin=0, xmax=1, ymin=-1,
         ymax=1.5, figsizeheight=textheight/3, figsizewidth=textwidth,
         save=False, outfile='metric_plane_evolution.pdf')
+    # plt.double_scatter(xs[0], ys[0], xs[3], ys[3], colors, markers, alphas,
+    #     labels, ['early', 'late'], xlabel=xlabel, ylabel=ylabel,
+    #     xmin=0, xmax=1, ymin=-1, ymax=1.5, figsizeheight=textheight/3,
+    #     figsizewidth=textwidth, save=False,
+    #     outfile='metric_plane_evolution_early+late.pdf')
     
     return
 
@@ -1248,7 +1263,7 @@ def save_plotly_plots() :
         zaxis=dict(titlefont=dict(size=25))), template='plotly_white',
         legend=dict(font=dict(size=30)))
     fig.show()
-    # fig.write_html('morphological_metrics_interactive_figure_1.html')
+    # fig.write_html('morphological_metrics_interactive_1.html')
     
     # create the plotly figure for C_SF/R_SF/Router
     fig = px.scatter_3d(df, x='C_SF', y='R_SF', z='Router', color='signature',
@@ -1265,6 +1280,45 @@ def save_plotly_plots() :
         zaxis=dict(titlefont=dict(size=25))), template='plotly_white',
         legend=dict(font=dict(size=30)))
     fig.show()
-    # fig.write_html('morphological_metrics_interactive_figure_2.html')
+    # fig.write_html('morphological_metrics_interactive_2.html')
     
     return
+
+textwidth = 7.10000594991006
+textheight = 9.095321710253218
+
+table_2d = Table.read('TNG50-1/morphological_metrics_-10.5_+-1_2D.fits')
+CSF_2d = table_2d['C_SF'].value
+RSF_2d = table_2d['R_SF'].value
+Rinner_2d = table_2d['Rinner'].value
+Router_2d = table_2d['Router'].value
+
+table_3d = Table.read('TNG50-1/morphological_metrics_-10.5_+-1_3D.fits')
+CSF_3d = table_3d['C_SF'].value
+RSF_3d = table_3d['R_SF'].value
+Rinner_3d = table_3d['Rinner'].value
+Router_3d = table_3d['Router'].value
+
+from matplotlib import cm
+
+plt.histogram_2d(CSF_2d, CSF_3d, bins=np.arange(0, 1.1, 0.05), xmin=0, xmax=1,
+    ymin=0, ymax=1, figsizewidth=textwidth/2, figsizeheight=textheight/2,
+    xlabel=r'$C_{\rm SF,~2D}$', ylabel=r'$C_{\rm SF,~3D}$', cmap=cm.Blues, loc=2,
+    save=True, outfile='metric_comparison_CSF.pdf')
+
+plt.histogram_2d(np.log10(RSF_2d), np.log10(RSF_3d), bins=np.arange(-1.5, 2, 0.175),
+    xmin=-1.5, xmax=2, ymin=-1.5, ymax=2, figsizewidth=textwidth/2,
+    figsizeheight=textheight/2, xlabel=r'$R_{\rm SF,~2D}$',
+    ylabel=r'$R_{\rm SF,~3D}$', cmap=cm.Reds, loc=2,
+    save=True, outfile='metric_comparison_RSF.pdf')
+
+plt.histogram_2d(Rinner_2d, Rinner_3d, bins=np.arange(0, 5.1, 0.25), xmin=0, xmax=5,
+    ymin=0, ymax=5, figsizewidth=textwidth/2, figsizeheight=textheight/2,
+    xlabel=r'$R_{\rm inner,~2D}/R_{\rm e}$', ylabel=r'$R_{\rm inner,~3D}/R_{\rm e}$',
+    cmap=cm.Greens, loc=2, save=True, outfile='metric_comparison_Rinner.pdf')
+
+plt.histogram_2d(Router_2d, Router_3d, bins=np.arange(0, 5.1, 0.25), xmin=0, xmax=5,
+    ymin=0, ymax=5, figsizewidth=textwidth/2, figsizeheight=textheight/2,
+    xlabel=r'$R_{\rm outer,~2D}/R_{\rm e}$', ylabel=r'$R_{\rm outer,~3D}/R_{\rm e}$',
+    cmap=cm.Purples, loc=2, save=True, outfile='metric_comparison_Router.pdf')
+
