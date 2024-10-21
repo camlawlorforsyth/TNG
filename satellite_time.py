@@ -276,7 +276,7 @@ def save_time_comparison_plot() :
         xlabel2=r'$t_{\rm satellite}$ (Gyr)', ylabel2='',
         titles=['inside-out', 'outside-in'],
         xmin1=1, xmax1=14, xmin2=1, xmax2=14, ymin=1, ymax=14,
-        figsizewidth=textwidth, figsizeheight=textheight/2,
+        figsizewidth=textwidth, figsizeheight=textheight/3,
         save=False, outfile='time_comparison.pdf')
     
     return

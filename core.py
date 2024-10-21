@@ -242,7 +242,7 @@ def get_particle_positions(simName, snapNum, snap, subID, center) :
     except KeyError :
         return None, None, None, None, None
 
-def get_particles(simName, snapNum, snap, subID, center) :
+def get_particles(simName, snapNum, snap, subID, center, version='2D') :
     
     # define the mpb cutouts directory and file
     mpbcutoutDir = mpbCutoutPath(simName, snapNum)
@@ -428,6 +428,11 @@ def snapshot_redshifts(simName='TNG50-1') :
         table.write(outfile)
     
     return
+
+def surface(aa, bb, cc, dd, xs, ys) :
+    # given a plane of the form aa*xx + bb*yy + cc*zz + dd = 0, solve for zz
+    surf = lambda xx, yy : (-dd - aa*xx - bb*yy)/cc
+    return surf(xs, ys)
 
 def test_lookup_table() :
     

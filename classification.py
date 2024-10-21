@@ -3,7 +3,7 @@ import numpy as np
 
 from sklearn.svm import SVC
 
-from core import get_late_data
+from core import get_late_data, surface
 import plotting as plt
 
 def calculate_purity_completeness(Niterations, offsets, X_sf, X_io, X_oi, X_am,
@@ -163,9 +163,12 @@ def determine_purity_completeness(y_quenched, y_sf, X_quenched, X_sf, X_io,
         quenched_amb_com_16, quenched_amb_com_50, quenched_amb_com_84 = np.percentile(
             quenched_amb_coms, [16, 50, 84], axis=0)
         
-        los = [sf_pur_16, sf_com_16, quenched_pur_16, quenched_com_16]
-        meds = [sf_pur_50, sf_com_50, quenched_pur_50, quenched_com_50]
-        his = [sf_pur_84, sf_com_84, quenched_pur_84, quenched_com_84]
+        los = [sf_pur_16, sf_com_16, quenched_pur_16, quenched_com_16,
+               quenched_amb_pur_16, quenched_amb_com_16]
+        meds = [sf_pur_50, sf_com_50, quenched_pur_50, quenched_com_50,
+                quenched_amb_pur_50, quenched_amb_com_50]
+        his = [sf_pur_84, sf_com_84, quenched_pur_84, quenched_com_84,
+               quenched_amb_pur_84, quenched_amb_com_84]
         
         return los, meds, his
     else :
@@ -310,6 +313,7 @@ def save_classification_boundaries_plot(balance_populations_manually=True) :
     plt.double_scatter_with_line(xprimes1, ys1, colors, markers, alphas, xx, xx,
         xprimes2, ys2, colors, markers, alphas, xx, xx, labels,
         xlabel1=xlabel1, ylabel1=ylabel1, xlabel2=xlabel2, ylabel2=ylabel2,
+        titles=['inside-out', 'outside-in'],
         xmin1=-1.3, xmax1=2.3, xmin2=-8, xmax2=9, ymin=-0.1, ymax=5.1,
         figsizewidth=textwidth, figsizeheight=textheight/3, loc=2,
         save=False, outfile='classification_boundaries.pdf')
@@ -328,6 +332,8 @@ def save_purity_completness_plot(Noffsets=41) :
     # setup the orthogonal offsets from the classification boundary planes
     offsets = np.linspace(-2, 2, Noffsets)
     
+    # np.random.seed(0)
+    
     '''
     # fix_coefficients=True, threshold=1, and Niterations=1 should all employ
     # the same behaviour, with the other behaviour being
@@ -337,41 +343,54 @@ def save_purity_completness_plot(Noffsets=41) :
     # select the same number of SF galaxies as quenching galaxies, for IO
     los1, meds1, his1 = determine_purity_completeness(y_quenched, y_sf,
         X_quenched, X_sf, X_io, X_oi, X_am, 2, offsets, len(y_quenched)/len(y_sf),
-        Niterations=3)
+        Niterations=1000)
     
     # select the same number of SF galaxies as quenching galaxies, for OI
     los2, meds2, his2 = determine_purity_completeness(y_quenched, y_sf,
         X_quenched, X_sf, X_io, X_oi, X_am, 3, offsets, len(y_quenched)/len(y_sf),
-        Niterations=3)
+        Niterations=1000)
     
     # select all the SF galaxies, for IO
-    meds3 = determine_purity_completeness(y_quenched, y_sf, X_quenched, X_sf,
-        X_io, X_oi, X_am, 2, offsets, 1, Niterations=1)
+    # meds3 = determine_purity_completeness(y_quenched, y_sf, X_quenched, X_sf,
+    #     X_io, X_oi, X_am, 2, offsets, 1, Niterations=1)
     
     # select all the SF galaxies, for OI
-    meds4 = determine_purity_completeness(y_quenched, y_sf, X_quenched, X_sf,
-        X_io, X_oi, X_am, 3, offsets, 1, Niterations=1)
+    # meds4 = determine_purity_completeness(y_quenched, y_sf, X_quenched, X_sf,
+    #     X_io, X_oi, X_am, 3, offsets, 1, Niterations=1)
     
-    colors1 = ['k', 'grey', 'm', 'indigo']
-    labels1 = ['SF purity', 'SF completeness', 'inside-out purity', 'inside-out completeness']
-    colors2 = ['k', 'grey', 'r', 'darkred']
-    labels2 = ['SF purity', 'SF completeness', 'outside-in purity', 'outside-in completeness']
-    colors3 = colors1 + ['gold', 'darkorange']
-    labels3 = labels1 + ['+ambiguous purity', '+ambiguous completeness']
-    colors4 = colors2 + ['gold', 'darkorange']
-    labels4 = labels2 + ['+ambiguous purity', '+ambiguous completeness']
+    # colors1 = ['k', 'grey', 'm', 'indigo']
+    # labels1 = ['SF purity', 'SF completeness', 'inside-out purity', 'inside-out completeness']
+    # colors2 = ['k', 'grey', 'r', 'darkred']
+    # labels2 = ['SF purity', 'SF completeness', 'outside-in purity', 'outside-in completeness']
+    # colors3 = colors1 + ['gold', 'darkorange']
+    # labels3 = labels1 + ['+ambiguous purity', '+ambiguous completeness']
+    # colors4 = colors2 + ['gold', 'darkorange']
+    # labels4 = labels2 + ['+ambiguous purity', '+ambiguous completeness']
+    # styles = ['-', '--', '-', '--', '-', '--']
+    
+    # plt.quad_grid_plot(offsets, meds1, los1, his1, colors1, labels1,
+    #     meds2, los2, his2, colors2, labels2, meds3, colors3, labels3,
+    #     meds4, colors4, labels4, styles, titles=['inside-out', 'outside-in'],
+    #     xlabel=r'orthogonal distance from boundary surface',
+    #     ylabel='fraction', save=False, outfile='purity_completeness.pdf',
+    #     figsizeheight=textheight/2, figsizewidth=textwidth)
+    
+    colors1 = ['k', 'grey', 'm', 'indigo', 'gold', 'darkorange']
+    labels1 = ['SF purity', '', 'inside-out/+ambig. purity',
+               'inside-out/+ambig. compl.', 'inside-out/+ambig. purity',
+               'inside-out/+ambig. compl.']
+    colors2 = ['k', 'grey', 'r', 'darkred', 'gold', 'darkorange']
+    labels2 = ['', 'SF completeness', 'outside-in/+ambig. purity',
+               'outside-in/+ambig. compl.', 'outside-in/+ambig. purity',
+               'outside-in/+ambig. compl.']
     styles = ['-', '--', '-', '--', '-', '--']
+    zorders = np.array([4, 1, 5, 2, 6, 3])/6
     
-    plt.quad_grid_plot(offsets, meds1, los1, his1, colors1, labels1,
-        meds2, los2, his2, colors2, labels2, meds3, colors3, labels3,
-        meds4, colors4, labels4, styles, titles=['inside-out', 'outside-in'],
+    plt.double_grid_plot(offsets, meds1, los1, his1, colors1, labels1,
+        meds2, los2, his2, colors2, labels2, styles, zorders=zorders,
+        titles=['inside-out', 'outside-in'],
         xlabel=r'orthogonal distance from boundary surface',
         ylabel='fraction', save=False, outfile='purity_completeness.pdf',
-        figsizeheight=textheight/2, figsizewidth=textwidth)
+        figsizeheight=textheight/3, figsizewidth=textwidth)
     
     return
-
-def surface(aa, bb, cc, dd, xs, ys) :
-    # given a plane of the form aa*xx + bb*yy + cc*zz + dd = 0, solve for zz
-    surf = lambda xx, yy : (-dd - aa*xx - bb*yy)/cc
-    return surf(xs, ys)

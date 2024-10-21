@@ -251,7 +251,7 @@ def save_SFMS_with_quenched_galaxies_plot() :
     SFMS_masses, SFMS_SFRs = masses[SFMS_mask], SFRs[SFMS_mask]
     
     # plot the SFMS with those percentiles
-    outfile = 'SFMS_z0_with_quenched_new.pdf'
+    outfile = 'SFMS_z0_with_quenched.pdf'
     plt.plot_scatter_multi_with_bands(SFMS_masses, SFMS_SFRs,
         quenched_masses, quenched_SFRs, sf_masses, sf_SFRs, centers, los, his,
         xlabel=r'$\log(M_{*}/{\rm M}_{\odot})$',
@@ -271,13 +271,22 @@ def save_SMF_with_quenched_galaxies_plot() :
     # get the stellar masses and SFHs for the entire sample
     with h5py.File('TNG50-1/TNG50-1_99_sample(t).hdf5', 'r') as hf :
         logM = hf['logM'][:, 99]
-        # SFHs = hf['SFH'][:]
+        SFR = hf['SFH'][:, 99]
         # SFMS = hf['SFMS'][:]
         quenched = hf['quenched'][:]
     
+    # mask the quantities for the massive population
     mask = (logM >= 9.5)
     quenched = quenched[mask]
     logM = logM[mask]
+    SFR = SFR[mask]
+    
+    # get the SMF for quenched galaxies using a more relaxed definition of
+    # quenched, based on a cut in sSFR of log(sSFR/yr) <= -10.5
+    sSFR = SFR/np.power(10, logM)
+    relaxed = np.full(sSFR.shape, False)
+    relaxed[sSFR == 0.] = True
+    relaxed[sSFR > 0.] = (np.log10(sSFR[sSFR > 0.]) < -10.5)
     
     edges = np.arange(9.5, 12, 0.25)
     xs = edges[:-1] + np.diff(edges)/2
@@ -286,22 +295,25 @@ def save_SMF_with_quenched_galaxies_plot() :
     
     vals, _ = np.histogram(logM[quenched], bins=edges)
     volume = np.power(35/0.6774, 3)
-    
     data = vals/volume/0.25
     
-    # create an array of stellar masses for plotting the SMF
-    logM = np.linspace(9.5, 12, 100)
+    relaxed_vals, _ = np.histogram(logM[relaxed], bins=edges)
+    relaxed_data = relaxed_vals/volume/0.25
     
-    # fit values from Baldry+ 2012 for blue and red z < 0.06 galaxies
-    # baldry_sf = schechter_log(logM, 10.72, -1.45, 0.71e-3)
-    baldry = schechter_double_log(logM, 10.72, -0.45, -1.45, 3.25e-3, 0.08e-3)
-    renorm = [np.nan]*100
+    # fit values from Baldry+ 2004 for red z < 0.08 SDSS galaxies
+    xx = np.linspace(9.5, 12, 1000)
+    baldry2004 = schechter_log(xx, 11.05, -0.87, 1.87e-3)
     
-    plt.plot_simple_multi([xs, logM, logM],
-        [np.log10(data), np.log10(baldry), np.log10(renorm)],
-        ['quenched', 'Baldry et al. (2012)', ''],
-        ['k', 'k', 'k'], ['o', '', ''], ['', '-', '--'],
-        [1, 1, 1], xlabel=r'$\log(M_{*}/{\rm M}_{\odot})$',
+    # fit values from Baldry+ 2012 for red z < 0.06 GAMA galaxies
+    baldry2012 = schechter_double_log(xx, 10.72, -0.45, -1.45, 3.25e-3, 0.08e-3)
+    
+    plt.plot_simple_multi([xs, xs, xx, xx],
+        [np.log10(data), np.log10(relaxed_data), np.log10(baldry2004),
+         np.log10(baldry2012)],
+        ['quenched', r'${\rm sSFR} < 10^{-10.5}~{\rm yr}^{-1}$',
+         'Baldry et al. (2004)', 'Baldry et al. (2012)'],
+        ['k', 'k', 'k', 'k'], ['o', 'o', '', ''], ['', '', '-', '--'],
+        [1, 1, 1, 1], xlabel=r'$\log(M_{*}/{\rm M}_{\odot})$',
         ylabel=r'$\log{({\rm number~density}/{\rm dex}^{-1}~{\rm Mpc}^{-3})}$',
         xmin=9.5, xmax=11.75, ymin=-5, ymax=-2, loc=3,
         figsizeheight=textheight/3, figsizewidth=colwidth, save=False,
